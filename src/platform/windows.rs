@@ -175,7 +175,14 @@ pub fn is_installed_copy() -> bool {
 pub fn install(quiet: bool) -> Result<(), String> {
     stop_running();
     std::fs::create_dir_all(install_dir()).map_err(|e| e.to_string())?;
-    std::fs::copy(self_path(), installed_exe()).map_err(|e| format!("설치하지 못했습니다: {e}"))?;
+    // The stopped copy (1.0.0 or this version) may take a moment to exit and release its exe: retry for 15s.
+    let mut copied = std::fs::copy(self_path(), installed_exe());
+    for _ in 0..30 {
+        if copied.is_ok() { break; }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        copied = std::fs::copy(self_path(), installed_exe());
+    }
+    copied.map_err(|e| format!("설치하지 못했습니다: {e}"))?;
     let mut lnk = mslnk::ShellLink::new(installed_exe()).map_err(|e| e.to_string())?;
     lnk.set_arguments(Some("--run".into()));
     lnk.set_working_dir(Some(install_dir().display().to_string()));
