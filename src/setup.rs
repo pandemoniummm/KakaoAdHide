@@ -69,6 +69,7 @@ pub fn serve() -> Status {
         Ok(c) => c,
         Err(e) => return Status::Failed(format!("인증서를 읽지 못했습니다: {e}")),
     };
+    server::set_log(Some(platform::data_dir().join("server.log")));
     match server::start(cfg, &server::listen_addresses(443)) {
         Ok(_) => if routed() { Status::Serving } else { Status::NotRouted },
         Err(e) => Status::PortBusy(e),

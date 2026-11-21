@@ -11,8 +11,8 @@ use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub fn tls_config(cert_pem: &Path, key_pem: &Path) -> Result<Arc<ServerConfig>, String> {
@@ -79,16 +79,55 @@ fn is_mapped_loopback(ip: IpAddr) -> bool {
     matches!(ip, IpAddr::V6(v6) if v6.to_ipv4_mapped().map(|v4| v4.is_loopback()).unwrap_or(false))
 }
 
+// A small connection log (server.log in the data folder) for diagnosing "the ad still shows": whether KakaoTalk
+// connected, which host name it asked for, whether it accepted our certificate, and which paths it requested
+// (without query strings). Capped at MAX_LOG bytes; the previous file is kept as server.log.old.
+const MAX_LOG: u64 = 64 * 1024;
+static LOG: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+pub fn set_log(path: Option<PathBuf>) {
+    if let Ok(mut g) = LOG.lock() { *g = path; }
+}
+
+fn log(line: &str) {
+    let Ok(guard) = LOG.lock() else { return };
+    let Some(path) = guard.as_ref() else { return };
+    if std::fs::metadata(path).map(|m| m.len() > MAX_LOG).unwrap_or(false) {
+        let _ = std::fs::rename(path, path.with_extension("log.old"));
+    }
+    let t = time::OffsetDateTime::now_utc();
+    let stamp = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}Z", t.year(), u8::from(t.month()), t.day(), t.hour(), t.minute(), t.second());
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "{stamp} {line}");
+    }
+}
+
 fn serve(mut tcp: TcpStream, cfg: Arc<ServerConfig>) -> std::io::Result<()> {
     tcp.set_read_timeout(Some(Duration::from_secs(15)))?;
     tcp.set_write_timeout(Some(Duration::from_secs(15)))?;
-    let conn = rustls::ServerConnection::new(cfg).map_err(std::io::Error::other)?;
+    let peer = tcp.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
+    let mut conn = rustls::ServerConnection::new(cfg).map_err(std::io::Error::other)?;
+    // Handshake first, so a client that rejects our certificate shows up in the log with its reason.
+    while conn.is_handshaking() {
+        let result = match conn.complete_io(&mut tcp) {
+            Ok((0, 0)) => Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof)),
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = result {
+            log(&format!("{peer} TLS failed (sni={}): {e}", conn.server_name().unwrap_or("-")));
+            return Err(e);
+        }
+    }
+    let sni = conn.server_name().unwrap_or("-").to_string();
+    log(&format!("{peer} TLS ok (sni={sni})"));
     let tls = rustls::StreamOwned::new(conn, &mut tcp);
     let mut reader = BufReader::new(tls);
     // keep-alive: a few requests per connection at most
     for _ in 0..32 {
         let Some(req) = read_request(&mut reader)? else { return Ok(()) };
         let (status, ctype, body) = respond(&req.method, &req.path);
+        log(&format!("{peer} {sni} {} {} -> {status}", req.method, req.path));
         let head = format!(
             "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\n",
             body.len()
