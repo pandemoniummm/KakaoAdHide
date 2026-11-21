@@ -94,11 +94,11 @@ if ($SetSecret) {
   $priv = Key-File 'primary' 'private'
   if (-not (Test-Path -LiteralPath $priv)) { throw "no primary private key: $priv" }
   if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'gh CLI not found' }
-  Push-Location $root
-  try {
-    Get-Content -LiteralPath $priv -Raw | gh secret set SIGNING_PRIVATE_KEY
-    if ($LASTEXITCODE -ne 0) { throw 'gh secret set failed' }
-  } finally { Pop-Location }
+  # Feed the file to gh directly. Piping a string from Windows PowerShell to a native program re-encodes
+  # it with $OutputEncoding, which can prepend a BOM and corrupt the key.
+  $p = Start-Process gh -ArgumentList 'secret', 'set', 'SIGNING_PRIVATE_KEY' -WorkingDirectory $root `
+         -RedirectStandardInput $priv -NoNewWindow -Wait -PassThru
+  if ($p.ExitCode -ne 0) { throw 'gh secret set failed' }
   Write-Host 'stored   SIGNING_PRIVATE_KEY repository secret'
 }
 

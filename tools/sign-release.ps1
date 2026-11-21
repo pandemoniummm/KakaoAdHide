@@ -26,6 +26,7 @@ $ErrorActionPreference = 'Stop'
 
 $keyXml = if ($PrivateKeyFile) { [IO.File]::ReadAllText($PrivateKeyFile) } else { $env:SIGNING_PRIVATE_KEY }
 if (-not $keyXml) { throw 'No signing key: set SIGNING_PRIVATE_KEY or pass -PrivateKeyFile' }
+$keyXml = $keyXml.Trim([char]0xFEFF, ' ', "`t", "`r", "`n")   # tolerate a BOM or stray whitespace around the key
 
 $bytes = [IO.File]::ReadAllBytes((Resolve-Path $Exe).Path)
 $sha = (New-Object Security.Cryptography.SHA256Managed).ComputeHash($bytes)
