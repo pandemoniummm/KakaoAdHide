@@ -1,21 +1,21 @@
 #!/bin/bash
 # Builds KakaoAdHide.app (universal: Apple silicon + Intel) and, with --dmg, dist/KakaoAdHide-macos.dmg.
-# Needs only the Xcode Command Line Tools (xcode-select --install).
+# Needs Rust (rustup, with the aarch64-apple-darwin and x86_64-apple-darwin targets) and the Xcode Command
+# Line Tools.
 #
-#   macos/build.sh                      ad-hoc signed app in macos/build/ (local testing)
-#   macos/build.sh --dmg                ... plus dist/KakaoAdHide-macos.dmg
-#   macos/build.sh --version 1.2.0      override VERSION (the release workflow checks it matches the tag)
-#   macos/build.sh --sign-p12 <file> --sign-password-file <file>
+#   packaging/macos/build.sh                      ad-hoc signed app in target/KakaoAdHide.app (local testing)
+#   packaging/macos/build.sh --dmg                ... plus dist/KakaoAdHide-macos.dmg
+#   packaging/macos/build.sh --version 1.2.0      override VERSION (the release workflow checks it matches the tag)
+#   packaging/macos/build.sh --sign-p12 <file> --sign-password-file <file>
 #                                       sign with the release certificate (tools/new-macos-signing-cert.sh);
 #                                       or set MACOS_SIGNING_P12 (base64) and MACOS_SIGNING_PASSWORD (CI)
 #
-# Ad-hoc builds run, but macOS treats every one as a new app: the Accessibility permission has to be granted
-# again after each rebuild, and they cannot install updates signed with the release certificate (nor be
-# installed by one). Sign with the certificate to test either.
+# Ad-hoc builds run, but they cannot install updates signed with the release certificate (nor be installed by
+# one): the updater checks the code signature. Sign with the certificate to test updates.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
-repo="$(dirname "$here")"
+repo="$(cd "$here/../.." && pwd)"
 version="$(tr -d '[:space:]' < "$repo/VERSION")"
 make_dmg=0
 p12="" ; pw_file=""
@@ -69,21 +69,21 @@ sign() {
   fi
 }
 
-# ---- binary (one build per architecture, then lipo: works without full Xcode)
-cd "$here"
+# ---- binary (one build per architecture, then lipo)
+cd "$repo"
 bins=()
-for arch in arm64 x86_64; do
-  scratch="$here/.build/$arch"   # one scratch dir per architecture: the build system shares output paths
-  swift build -c release --arch "$arch" --product KakaoAdHide --scratch-path "$scratch"
-  bins+=("$(swift build -c release --arch "$arch" --scratch-path "$scratch" --show-bin-path)/KakaoAdHide")
+for target in aarch64-apple-darwin x86_64-apple-darwin; do
+  rustup target list --installed | grep -qx "$target" || rustup target add "$target"
+  KAKAOADHIDE_VERSION="$version" MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --release --target "$target"
+  bins+=("$repo/target/$target/release/KakaoAdHide")
 done
 
-app="$here/build/KakaoAdHide.app"
+app="$repo/target/KakaoAdHide.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 lipo -create -output "$app/Contents/MacOS/KakaoAdHide" "${bins[@]}"
-sed "s/__VERSION__/$version/g" "$here/Resources/Info.plist" > "$app/Contents/Info.plist"
-[[ -f "$here/Resources/AppIcon.icns" ]] && cp "$here/Resources/AppIcon.icns" "$app/Contents/Resources/"
+sed "s/__VERSION__/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
+[[ -f "$here/AppIcon.icns" ]] && cp "$here/AppIcon.icns" "$app/Contents/Resources/"
 printf 'APPL????' > "$app/Contents/PkgInfo"
 
 sign --identifier io.github.pandemoniummm.KakaoAdHide "$app"

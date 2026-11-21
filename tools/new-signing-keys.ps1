@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Creates the update signing keys and puts the public keys into windows/src/UpdateKeys.cs and
-  macos/Sources/Core/UpdateKeys.swift (both platforms verify updates with the same keys).
+  Creates the update signing keys and puts the public keys into src/keys.rs (both platforms verify updates with
+  the same keys).
 
 .DESCRIPTION
   Makes two RSA-3072 key pairs:
@@ -21,7 +21,7 @@
   logged in).
 
 .PARAMETER UseExisting
-  Don't create keys; only (re)write the UpdateKeys files from the existing public key files.
+  Don't create keys; only (re)write src/keys.rs from the existing public key files.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File tools\new-signing-keys.ps1 -SetSecret
@@ -71,43 +71,22 @@ if (-not $UseExisting) {
   New-KeyPair 'backup'
 }
 
-# public keys -> windows/src/UpdateKeys.cs and macos/Sources/Core/UpdateKeys.swift
+# public keys -> src/keys.rs
 $keys = @((Get-PublicXml 'primary'), (Get-PublicXml 'backup'))
 $lines = @(
-  '// Public keys that update packages must be signed with (RSA, XML format). Written by'
+  '// Public keys that update packages must be signed with (RSA, .NET XML format). Written by'
   '// tools/new-signing-keys.ps1. An update is accepted when its signature matches any of these keys.'
   '//   [0] primary: its private key is the SIGNING_PRIVATE_KEY repository secret (used by the release workflow)'
   '//   [1] backup : its private key is kept offline; used only if the primary is lost or has to be replaced'
-  '// While this list is empty, updates are never installed automatically (the user is sent to the'
-  '// release page instead).'
+  '// These are the keys KakaoAdHide 1.0.0 (Windows) shipped with: changing them strands installed copies.'
   ''
-  'static class UpdateKeys {'
-  '  public static readonly string[] Public = {'
+  'pub const PUBLIC_KEYS: &[&str] = &['
 )
 foreach ($k in $keys) { $lines += '    "' + $k + '",' }
-$lines += '  };'
-$lines += '}'
-$out = Join-Path $root 'windows\src\UpdateKeys.cs'
+$lines += '];'
+$out = Join-Path $root 'src\keys.rs'
 [IO.File]::WriteAllText($out, (($lines -join "`n") + "`n"), $utf8)
 Write-Host "wrote    $out"
-
-$swift = @(
-  '// Public keys that update packages must be signed with (RSA, XML format): the same two keys as the'
-  '// Windows version (windows/src/UpdateKeys.cs), so one signing step in the release workflow covers both platforms.'
-  '// Written by tools/new-signing-keys.ps1.'
-  '//   [0] primary: its private key is the SIGNING_PRIVATE_KEY repository secret (used by the release workflow)'
-  '//   [1] backup : its private key is kept offline; used only if the primary is lost or has to be replaced'
-  '// A test (UpdateKeysTests) checks that this list matches windows/src/UpdateKeys.cs.'
-  ''
-  'public enum UpdateKeys {'
-  '  public static let publicKeys: [String] = ['
-)
-foreach ($k in $keys) { $swift += '    "' + $k + '",' }
-$swift += '  ]'
-$swift += '}'
-$outSwift = Join-Path $root 'macos\Sources\Core\UpdateKeys.swift'
-[IO.File]::WriteAllText($outSwift, (($swift -join "`n") + "`n"), $utf8)
-Write-Host "wrote    $outSwift"
 
 if ($SetSecret) {
   $priv = Key-File 'primary' 'private'
@@ -129,4 +108,4 @@ Write-Host ('       ' + (Key-File 'backup' 'private'))
 Write-Host '     GitHub secrets cannot be read back, so your backup is the only copy you can recover from.'
 Write-Host '  2. The backup private key is not needed for releases: keep it offline and delete it from this PC.'
 if (-not $SetSecret) { Write-Host '  3. Store the primary key as the SIGNING_PRIVATE_KEY secret: run again with -UseExisting -SetSecret' }
-Write-Host '  Then commit windows/src/UpdateKeys.cs and macos/Sources/Core/UpdateKeys.swift (they hold only the public keys).'
+Write-Host '  Then commit src/keys.rs (it holds only the public keys).'

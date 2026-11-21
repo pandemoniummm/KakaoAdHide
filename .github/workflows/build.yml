@@ -2,9 +2,10 @@ name: build
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,9 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Test
+        run: cargo test --locked
+
       - name: Build
         shell: powershell
-        run: ./windows/build.ps1
+        run: ./packaging/windows/build.ps1
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -32,11 +36,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Test
-        working-directory: macos
-        run: swift test
+        run: cargo test --locked
 
       - name: Build (ad-hoc signed)
-        run: macos/build.sh --dmg
+        run: packaging/macos/build.sh --dmg
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -68,7 +71,7 @@ jobs:
           MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
         run: |
           [[ -n "$MACOS_SIGNING_P12" ]] || { echo 'MACOS_SIGNING_P12 secret is not set (tools/new-macos-signing-cert.sh --set-secret)'; exit 1; }
-          macos/build.sh --dmg --version "$VERSION"
+          packaging/macos/build.sh --dmg --version "$VERSION"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -92,7 +95,7 @@ jobs:
 
       - name: Build
         shell: powershell
-        run: ./windows/build.ps1 -Version $env:VERSION
+        run: ./packaging/windows/build.ps1 -Version $env:VERSION
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -112,7 +115,7 @@ jobs:
         shell: powershell
         run: |
           $p = Start-Process dist/KakaoAdHide-windows.exe -ArgumentList '--verify-feed', 'dist/latest-windows.json', 'dist/KakaoAdHide-windows.exe' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "update feed does not verify against the keys in windows/src/UpdateKeys.cs (exit $($p.ExitCode))" }
+          if ($p.ExitCode -ne 0) { throw "update feed does not verify against the keys in src/keys.rs (exit $($p.ExitCode))" }
 
       - name: Checksums for both platforms
         shell: powershell
@@ -152,7 +155,7 @@ jobs:
           ditto "$mnt/KakaoAdHide.app" "$RUNNER_TEMP/KakaoAdHide.app"
           hdiutil detach "$mnt"
           "$RUNNER_TEMP/KakaoAdHide.app/Contents/MacOS/KakaoAdHide" --verify-feed dist/latest-macos.json dist/KakaoAdHide-macos.dmg \
-            || { echo "macOS update feed does not verify (exit $?): keys in macos/Sources/Core/UpdateKeys.swift, certificate in macos/Sources/App/Config.swift"; exit 1; }
+            || { echo "macOS update feed does not verify (exit $?): keys in src/keys.rs, certificate in src/platform/macos.rs"; exit 1; }
 
       - name: Draft release
         env:

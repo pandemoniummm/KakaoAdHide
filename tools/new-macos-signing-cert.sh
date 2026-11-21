@@ -1,15 +1,15 @@
 #!/bin/bash
 # Creates the self-signed code signing certificate for the macOS app ("KakaoAdHide Code Signing").
 #
-# Why: macOS ties the Accessibility permission (and the updater's signature check) to who signed the app.
-# An ad-hoc signature changes with every build, so users would have to turn the permission on again after
-# each update. A fixed certificate keeps it. It is free; the price is that the first launch needs
-# "Open Anyway" (System Settings > Privacy & Security), like the unsigned Windows exe needs "Run anyway".
+# Why: the updater accepts only an app signed with this certificate (on top of the signed feed), and macOS
+# remembers apps by who signed them. An ad-hoc signature changes with every build. It is free; the price is that
+# the first launch needs "Open Anyway" (System Settings > Privacy & Security), like the unsigned Windows exe
+# needs "Run anyway".
 #
 # Output (outside the repository, never commit these):
 #   ~/.keys/kakaoadhide-macos-signing.p12       certificate + private key
 #   ~/.keys/kakaoadhide-macos-signing.password  the .p12 password
-# and prints the certificate's SHA-1, which goes into macos/Sources/App/Config.swift (signingRequirement).
+# and prints the certificate's SHA-1, which goes into src/platform/macos.rs (SIGNING_CERT_SHA1).
 #
 # Usage:
 #   tools/new-macos-signing-cert.sh               create (refuses to overwrite)
@@ -60,6 +60,6 @@ echo "wrote $pw_file"
 echo "certificate SHA-1: $sha1"
 echo
 echo "Next:"
-echo "  1. Put the SHA-1 into macos/Sources/App/Config.swift (signingCertificateSHA1) and commit it."
+echo "  1. Put the SHA-1 into src/platform/macos.rs (SIGNING_CERT_SHA1) and commit it."
 echo "  2. Back up both files (password manager, encrypted USB). GitHub secrets cannot be read back."
 echo "  3. For releases: tools/new-macos-signing-cert.sh --set-secret"
