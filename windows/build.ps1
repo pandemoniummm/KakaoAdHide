@@ -1,8 +1,8 @@
 # Builds dist\KakaoAdHide-windows.exe (the release asset; it installs itself as KakaoAdHide.exe)
 # with the C# compiler that ships with Windows (.NET Framework 4.x).
 # Nothing to install. Usage:
-#   powershell -ExecutionPolicy Bypass -File build.ps1                 # version from VERSION
-#   powershell -ExecutionPolicy Bypass -File build.ps1 -Version 1.2.0  # override (the release workflow checks it matches the tag)
+#   powershell -ExecutionPolicy Bypass -File windows\build.ps1                 # version from VERSION
+#   powershell -ExecutionPolicy Bypass -File windows\build.ps1 -Version 1.2.0  # override (the release workflow checks it matches the tag)
 #   -Define TEST_FEED -Out <path>                                      # test builds (local update feed, see src/Updater.cs)
 
 param(
@@ -12,15 +12,16 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = $PSScriptRoot
+$root = $PSScriptRoot                     # windows/ (sources)
+$repo = Split-Path $PSScriptRoot -Parent  # repository root (VERSION, dist)
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $csc)) { $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 if (-not (Test-Path $csc)) { throw "csc.exe (.NET Framework 4.x) not found" }
 
-if (-not $Version) { $Version = (Get-Content (Join-Path $root 'VERSION') -Raw).Trim() }
+if (-not $Version) { $Version = (Get-Content (Join-Path $repo 'VERSION') -Raw).Trim() }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "version must look like 1.2.3 (got '$Version')" }
 
-$dist = Join-Path $root 'dist'
+$dist = Join-Path $repo 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null
 if (-not $Out) { $Out = Join-Path $dist 'KakaoAdHide-windows.exe' }
 New-Item -ItemType Directory -Force (Split-Path $Out -Parent) | Out-Null
