@@ -114,7 +114,10 @@ impl App {
         if let Some(t) = &self.tray {
             t.set_menu(Some(Box::new(menu)));
             let i = icon(self.pending.is_some(), self.status != Status::Serving);
-            let _ = if cfg!(target_os = "macos") { t.set_icon_templated(Some(i)) } else { t.set_icon(Some(i)) };
+            #[cfg(target_os = "macos")]
+            let _ = t.set_icon_templated(Some(i));
+            #[cfg(not(target_os = "macos"))]
+            let _ = t.set_icon(Some(i));
             let _ = t.set_tooltip(Some(format!("KakaoAdHide {VERSION} - {}", self.status_text())));
         }
     }
@@ -227,7 +230,10 @@ pub fn run(at_sign_in: bool) -> ! {
                 let menu = app.build_menu();
                 let i = icon(false, app.status != Status::Serving);
                 let builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(format!("KakaoAdHide {VERSION}"));
-                let builder = if cfg!(target_os = "macos") { builder.with_icon_templated(i) } else { builder.with_icon(i) };
+                #[cfg(target_os = "macos")]
+                let builder = builder.with_icon_templated(i);
+                #[cfg(not(target_os = "macos"))]
+                let builder = builder.with_icon(i);
                 app.tray = builder.build().ok();
                 app.refresh();
             }
