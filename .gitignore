@@ -1,3 +1,9 @@
 dist/
+obj/
 *.exe
 *.pdb
+
+# never commit signing keys
+*private*.xml
+*.key
+*.pfx

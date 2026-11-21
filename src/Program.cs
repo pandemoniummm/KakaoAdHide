@@ -4,7 +4,9 @@
 //                                 (when started from the install folder: just run)
 //   KakaoAdHide.exe --run        what the Startup shortcut runs at sign-in (starts KakaoTalk to the tray)
 //   KakaoAdHide.exe --uninstall  remove everything and give KakaoTalk its own auto start back
-//   --quiet                      no message boxes (with install / uninstall)
+//   KakaoAdHide.exe --update     check for an update now (and install it, after verifying it)
+//   --quiet                      no message boxes (with install / uninstall / update)
+//   --verify-feed <latest-windows.json> <exe>   used by the release workflow (see Updater.VerifyFiles)
 //
 // Install = copy to %LOCALAPPDATA%\KakaoAdHide, a shortcut in the user's Startup folder, an entry in
 // "Installed apps", and KakaoTalk's own auto start switched off (KakaoAdHide starts KakaoTalk instead, so the
@@ -19,16 +21,10 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32;
 
-[assembly: AssemblyTitle("KakaoAdHide")]
-[assembly: AssemblyProduct("KakaoAdHide")]
-[assembly: AssemblyDescription("Hides the ad banner of KakaoTalk for Windows")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
-[assembly: AssemblyInformationalVersion("1.0.0")]
+// Version: see VERSION (build.ps1 generates the assembly attributes and BuildInfo.Version from it).
 
 static class Program {
   const string AppName = "KakaoAdHide";
-  const string Version = "1.0.0";
   const string MutexName = @"Local\KakaoAdHide";
   const string QuitEventName = @"Local\KakaoAdHide.Quit";
   const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -49,16 +45,19 @@ static class Program {
   static int Main(string[] args) {
     try { SetProcessDpiAwarenessContext((IntPtr)(-4)); } catch { }   // per-monitor v2: real pixels for rects and GetPixel
 
-    bool run = false, uninstall = false;
-    foreach (var a in args) {
-      string s = a.ToLowerInvariant();
+    bool run = false, uninstall = false, update = false;
+    for (int i = 0; i < args.Length; i++) {
+      string s = args[i].ToLowerInvariant();
       if (s == "--run") run = true;
       else if (s == "--uninstall") uninstall = true;
+      else if (s == "--update") update = true;
       else if (s == "--quiet") quiet = true;
+      else if (s == "--verify-feed") return i + 2 < args.Length ? Updater.VerifyFiles(args[i + 1], args[i + 2]) : 1;
     }
 
     try {
       if (uninstall) { Uninstall(); return 0; }
+      if (update) return Updater.UpdateNow(Message, !quiet);
       if (run) { RunHider(true); return 0; }
       if (SamePath(SelfPath(), InstalledExe)) { RunHider(false); return 0; }
       Install();
@@ -82,29 +81,37 @@ static class Program {
         quit.Reset();
         DisableKakaoAutoStart();   // KakaoTalk re-adds it after updates or when its setting is ticked again
         Hider.Init();
-
-        Process first = null;
-        if (Process.GetProcessesByName("KakaoTalk").Length == 0) {
-          string kakao = FindKakao();
-          if (kakao != null) {
-            try { first = Process.Start(new ProcessStartInfo(kakao, atSignIn ? "-bystartup" : "") { UseShellExecute = false }); } catch { }
-          }
-        }
-
-        while (true) {
-          // wait up to 30s for KakaoTalk (startup, or restart after an update)
-          Process p = first; first = null;
-          for (int i = 0; i < 30 && p == null; i++) {
-            var list = Process.GetProcessesByName("KakaoTalk");
-            if (list.Length > 0) p = list[0];
-            else if (quit.WaitOne(1000)) return;
-          }
-          if (p == null) return;   // KakaoTalk is gone -> exit
-
-          if (Hider.Run((uint)p.Id, quit)) return;   // returns when KakaoTalk exits (false) or on quit (true)
-          if (quit.WaitOne(3000)) return;
-        }
+        Updater.NoteVersion();
+        Updater.CleanupTemp();
+        Updater.StartBackground();
+        try { Watch(atSignIn, quit); }
+        finally { Updater.Shutdown(); }
       }
+    }
+  }
+
+  // Starts KakaoTalk if needed, then hides its ads until it exits for good or 'quit' is signalled.
+  static void Watch(bool atSignIn, EventWaitHandle quit) {
+    Process first = null;
+    if (Process.GetProcessesByName("KakaoTalk").Length == 0) {
+      string kakao = FindKakao();
+      if (kakao != null) {
+        try { first = Process.Start(new ProcessStartInfo(kakao, atSignIn ? "-bystartup" : "") { UseShellExecute = false }); } catch { }
+      }
+    }
+
+    while (true) {
+      // wait up to 30s for KakaoTalk (startup, or restart after an update)
+      Process p = first; first = null;
+      for (int i = 0; i < 30 && p == null; i++) {
+        var list = Process.GetProcessesByName("KakaoTalk");
+        if (list.Length > 0) p = list[0];
+        else if (quit.WaitOne(1000)) return;
+      }
+      if (p == null) return;   // KakaoTalk is gone -> exit
+
+      if (Hider.Run((uint)p.Id, quit)) return;   // returns when KakaoTalk exits (false) or on quit (true)
+      if (quit.WaitOne(3000)) return;
     }
   }
 
@@ -136,7 +143,7 @@ static class Program {
 
     using (var k = Registry.CurrentUser.CreateSubKey(UninstallKey)) {
       k.SetValue("DisplayName", "KakaoAdHide (카카오톡 PC 광고 숨김)");
-      k.SetValue("DisplayVersion", Version);
+      k.SetValue("DisplayVersion", BuildInfo.Version);
       k.SetValue("Publisher", "KakaoAdHide");
       k.SetValue("DisplayIcon", InstalledExe);
       k.SetValue("InstallLocation", InstallDir);
@@ -162,6 +169,7 @@ static class Program {
     RestoreKakaoAutoStart();
     try { Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false); } catch { }
     try { Registry.CurrentUser.DeleteSubKeyTree(AppKey, false); } catch { }
+    try { if (Directory.Exists(Updater.TempDir)) Directory.Delete(Updater.TempDir, true); } catch { }
 
     Message("제거했습니다.\n카카오톡 자동 실행은 원래대로 돌려 두었습니다.", 0x40);
 
