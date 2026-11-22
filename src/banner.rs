@@ -50,16 +50,16 @@ pub fn html(menu: Option<&str>) -> String {
 s.setProperty('--sb',(innerHeight*{sn}/{sd})+'px');s.setProperty('--ic',(innerHeight*{inum}/{iden})+'px')}};\
 size();window.addEventListener('resize',size);</script>"
     );
-    // The button sits in the sidebar part, under KakaoTalk's own sidebar icons, drawn like them: a grey outline
-    // icon (the tray icon's banner with a slash).
+    // The button sits in the sidebar part, under KakaoTalk's own sidebar icons, drawn like them: the app icon as
+    // a grey line icon (assets/icon-line.svg: a chat bubble, and the emptied ad slot dashed below it).
     let button = match menu {
         Some(token) => format!(
             "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);\
 height:var(--ic,19px);transform:translate(-50%,-50%);color:#6f6f6f;cursor:pointer}}#kah:hover{{color:#3c3c3c}}\
 @media (prefers-color-scheme: dark){{#kah{{color:#9a9a9a}}#kah:hover{{color:#e0e0e0}}}}</style>\
-<svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" \
-stroke-linecap=\"round\"><title>KakaoAdHide</title><rect x=\"2.5\" y=\"6.5\" width=\"19\" height=\"11\" rx=\"2.5\"/>\
-<path d=\"M4 20 L20 4\"/></svg>\
+<svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" \
+stroke-linecap=\"round\"><title>KakaoAdHide</title><rect x=\"3\" y=\"4\" width=\"18\" height=\"6.5\" rx=\"3.25\"/>\
+<rect x=\"3\" y=\"13.5\" width=\"18\" height=\"6.5\" rx=\"3.25\" stroke-dasharray=\"2.6 2.2\"/></svg>\
 <script>document.getElementById('kah').addEventListener('click',function(){{\
 fetch('{MENU_URL}?t={token}',{{mode:'no-cors',cache:'no-store'}}).catch(function(){{}})}});\
 document.addEventListener('contextmenu',function(e){{e.preventDefault()}});</script>"

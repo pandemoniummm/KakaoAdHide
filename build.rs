@@ -7,6 +7,7 @@ fn main() {
     let version = std::env::var("KAKAOADHIDE_VERSION").unwrap_or(version);   // the release workflow may override
     println!("cargo:rustc-env=KAKAOADHIDE_VERSION={version}");
     println!("cargo:rerun-if-changed=VERSION");
+    println!("cargo:rerun-if-changed=packaging/windows/app.ico");
     println!("cargo:rerun-if-env-changed=KAKAOADHIDE_VERSION");
 
     #[cfg(windows)]

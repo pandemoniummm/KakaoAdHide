@@ -1,0 +1,12 @@
+[package]
+name = "icon-gen"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Renders assets/icon.svg into the app icon files (Windows .ico, macOS .icns, PNGs). Not part of the app."
+
+# its own workspace: not built with the app
+[workspace]
+
+[dependencies]
+resvg = "0.50"

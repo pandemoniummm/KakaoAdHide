@@ -245,7 +245,7 @@ pub fn uninstall(quiet: bool) -> Result<(), String> {
     let _ = hkcu.delete_subkey_all(APP_KEY);
     let _ = std::fs::remove_dir_all(update_temp_dir());
     let _ = std::fs::remove_dir_all(setup::cert_dir());
-    for log in ["server.log", "server.log.old"] { let _ = std::fs::remove_file(data_dir().join(log)); }
+    for f in ["server.log", "server.log.old", "icon.png"] { let _ = std::fs::remove_file(data_dir().join(f)); }
     if !quiet {
         match &undo {
             Ok(()) => crate::ui::show(&crate::notices::removed()),
@@ -348,8 +348,12 @@ pub fn start_kakao(at_sign_in: bool) {
 /// Registers the notification sender name (an unpackaged app's AppUserModelID needs a DisplayName to show as
 /// "KakaoAdHide" rather than an id). Cheap, so it's also done at each start (older installs, repaired settings).
 pub fn register_notifications() {
+    // the app icon for the notification header: a PNG next to the exe (removed on uninstall)
+    let png = install_dir().join("icon.png");
+    let icon_ok = std::fs::write(&png, include_bytes!("../../assets/icon-256.png")).is_ok();
     if let Ok((k, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(NOTIFY_APP_KEY) {
         let _ = k.set_value("DisplayName", &"KakaoAdHide".to_string());
+        if icon_ok { let _ = k.set_value("IconUri", &png.display().to_string()); }
     }
 }
 

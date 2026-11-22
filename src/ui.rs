@@ -440,29 +440,69 @@ fn random_token() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
-/// The tray icon, drawn here (no image files): an ad banner with a slash; a dot when an update is waiting, an
-/// outline only while not working. macOS shows it as a template (black, tinted by the system).
+/// The tray (Windows) / menu bar (macOS) icon, drawn here (no image files): the app icon's shapes, a chat bubble
+/// above and the emptied ad slot dashed below (assets/icon-line.svg). Windows: the bubble in the app's mint, the
+/// slot in a grey that shows on light and dark taskbars; macOS: a template (black, tinted by the system). An
+/// outlined, grey bubble while not working; a dot when an update is waiting.
 fn icon(update: bool, inactive: bool) -> Icon {
-    const S: usize = 32;
-    let mut px = vec![0u8; S * S * 4];
-    let (r, g, b) = if cfg!(target_os = "macos") { (0, 0, 0) } else { (0x3c, 0x1e, 0x1e) };
-    let mut put = |x: usize, y: usize, a: u8| {
-        if x < S && y < S { let i = (y * S + x) * 4; px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = px[i + 3].max(a); }
+    Icon::from_rgba(icon_rgba(update, inactive), ICON_SIZE as u32, ICON_SIZE as u32).expect("icon")
+}
+
+const ICON_SIZE: usize = 32;
+
+fn icon_rgba(update: bool, inactive: bool) -> Vec<u8> {
+    const S: usize = ICON_SIZE;
+    const GREY: [u8; 3] = [0x8a, 0x93, 0xa6];
+    let (bubble, slot, dot) = if cfg!(target_os = "macos") {
+        ([0; 3], [0; 3], [0; 3])
+    } else {
+        (if inactive { GREY } else { [0x2f, 0xb8, 0xc6] }, GREY, [0xf2, 0x55, 0x7a])
     };
-    // banner: rounded rectangle 4..28 x 9..23
-    for y in 9..23 {
-        for x in 4..28 {
-            let edge = y == 9 || y == 22 || x == 4 || x == 27 || y == 10 || y == 21 || x == 5 || x == 26;
-            let corner = !(6..=25).contains(&x) && !(11..=20).contains(&y) && ((x as i32 - 15).abs() + (y as i32 - 16).abs() > 18);
-            if corner { continue; }
-            if edge || !inactive { put(x, y, if edge { 255 } else { 90 }); }
+    // signed distance to a rounded rectangle (centre cx,cy, half size hw,hh, corner radius r)
+    let sdf = |x: f32, y: f32, cy: f32| {
+        let (hw, hh, r) = (12.0f32, 4.5f32, 4.5f32);
+        let (qx, qy) = ((x - 16.0).abs() - hw + r, (y - cy).abs() - hh + r);
+        qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r
+    };
+    let mut px = vec![0u8; S * S * 4];
+    for y in 0..S {
+        for x in 0..S {
+            // coverage of each layer, 4x4 supersampled for smooth edges
+            let mut cover = [0f32; 3];
+            for sy in 0..4 {
+                for sx in 0..4 {
+                    let (fx, fy) = (x as f32 + (sx as f32 + 0.5) / 4.0, y as f32 + (sy as f32 + 0.5) / 4.0);
+                    // the bubble (y 5..14): filled, an outline while not working
+                    let d = sdf(fx, fy, 9.5);
+                    if if inactive { d.abs() <= 1.3 } else { d <= 0.0 } { cover[0] += 1.0 / 16.0; }
+                    // the slot (y 18..27): a dashed outline, dashes along the long edges, the round ends whole
+                    let dash = !(8.5..23.5).contains(&fx) || (fx - 8.5) % 5.0 < 3.0;
+                    if dash && sdf(fx, fy, 22.5).abs() <= 1.3 { cover[1] += 1.0 / 16.0; }
+                    // the update dot, top right
+                    if update && (fx - 27.0).hypot(fy - 5.0) <= 4.5 { cover[2] += 1.0 / 16.0; }
+                }
+            }
+            // later layers on top: bubble, slot, dot
+            let i = (y * S + x) * 4;
+            for (a, c) in [(cover[0], bubble), (cover[1], slot), (cover[2], dot)] {
+                if a > 0.0 {
+                    px[i..i + 3].copy_from_slice(&c);
+                    px[i + 3] = px[i + 3].max((a.min(1.0) * 255.0) as u8);
+                }
+            }
         }
     }
-    // slash
-    for i in 0..26 {
-        let x = 3 + i; let y = 28 - i;
-        for d in 0..3 { put(x + d, y, 255); }
+    px
+}
+
+#[cfg(test)]
+mod tests {
+    /// Writes the tray icon states to target/tray-*.rgba (32x32 RGBA) to look at: `cargo test tray_preview -- --ignored`
+    #[test]
+    #[ignore]
+    fn tray_preview() {
+        for (name, update, inactive) in [("on", false, false), ("off", false, true), ("update", true, false)] {
+            std::fs::write(format!("target/tray-{name}.rgba"), super::icon_rgba(update, inactive)).unwrap();
+        }
     }
-    if update { for y in 0..9 { for x in 23..32 { if (x as i32 - 27).pow(2) + (y as i32 - 4).pow(2) <= 16 { put(x, y, 255); } } } }
-    Icon::from_rgba(px, S as u32, S as u32).expect("icon")
 }

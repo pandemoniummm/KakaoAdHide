@@ -12,6 +12,8 @@ Rust 하나로 두 플랫폼을 만듭니다.
 | `src/platform/` | `windows.rs`(설치·레지스트리·UAC·인증서 저장소), `macos.rs`(앱 번들·키체인·LaunchAgent) |
 | `packaging/` | `windows/build.ps1`, `macos/build.sh`(앱 번들·서명·dmg), `macos/Info.plist` |
 | `tools/` | 업데이트 서명 키, 릴리스 서명, macOS 코드 서명 인증서 |
+| `assets/` | 아이콘 원본: 앱 아이콘(`icon.svg`), 선 아이콘(`icon-line.svg`, 사이드바 버튼과 트레이 모양) |
+| `tools/icon-gen/` | `icon.svg`에서 `packaging/windows/app.ico`, `packaging/macos/AppIcon.icns`, `assets/icon-256.png`을 만드는 도구 |
 | `docs/update-feed.md` | 업데이트 정보 형식과 서명 |
 | `VERSION` | 두 플랫폼 공통 버전 (`Cargo.toml`의 `version`과 같게) |
 
@@ -26,6 +28,16 @@ Rust 하나로 두 플랫폼을 만듭니다.
 - Windows는 사이드바 부분에 메뉴 버튼을 그립니다. 누르면 `/kakaoadhide/menu?t=<토큰>`을 요청하고, 앱이 커서 위치에 메뉴를 띄웁니다. 토큰은 처음 한 번 만들어 레지스트리(`MenuToken`)에 저장합니다.
 - 테스트가 빈 광고에 외부 요청이 없는지 확인합니다(메뉴 버튼의 로컬 요청 하나만 허용).
 - 광고 자리는 요청의 `id`로 구분합니다(`server.log`에 `[DAN-…]`로 남음). Windows는 하단 배너(`BOTTOM_BANNER_UNITS`)에만 빈 광고를 주고, 다른 자리(하루 첫 실행 때 트레이 근처에 뜨는 팝업 등)에는 빈 목록을 줘서 뜨지 않게 합니다. 카카오톡 업데이트로 하단 배너 `id`가 바뀌면 내장 배너가 다시 보이니, 로그를 보고 목록에 추가합니다. macOS는 아직 모든 자리에 빈 광고를 줍니다.
+
+## 아이콘
+
+`assets/icon.svg`를 고친 뒤 아이콘 파일을 다시 만듭니다(결과물은 커밋합니다. 앱 빌드에는 이 도구가 필요 없습니다).
+
+```bash
+cargo run --release --manifest-path tools/icon-gen/Cargo.toml
+```
+
+사이드바 버튼(`banner.rs`)과 트레이 아이콘(`ui.rs`의 `icon_rgba`)은 `assets/icon-line.svg`와 같은 모양을 코드로 그립니다. 모양을 바꾸면 셋을 함께 고칩니다.
 
 ## 빌드
 
