@@ -58,6 +58,18 @@ jobs:
           name: KakaoAdHide-macos
           path: dist/KakaoAdHide-macos.dmg
 
+  # Known vulnerabilities in the dependencies (RustSec advisory database). Fails on a vulnerability; warnings
+  # (unmaintained, unsound) are shown but don't fail, as the two current ones are in Linux-only crates.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: cargo audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
   # The universal app also runs on Intel Macs: run the tests natively there.
   test-macos-intel:
     runs-on: macos-15-intel
