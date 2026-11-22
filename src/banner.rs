@@ -84,10 +84,15 @@ size();window.addEventListener('resize',size);</script>"
     );
     // The button sits in the sidebar part, under KakaoTalk's own sidebar icons, drawn like them: the app icon as
     // a grey line icon (assets/icon-line.svg: a chat bubble, and the emptied ad slot outlined below it).
+    // Dark mode only on macOS: KakaoTalk for Windows has none, and its web view may still report a dark system.
+    let (dark_button, dark_off) = if DARK_MODE {
+        ("@media (prefers-color-scheme: dark){#kah{color:#b9b9b9}#kah:hover{background:rgba(255,255,255,.05)}}".to_string(),
+         format!("@media (prefers-color-scheme: dark){{.off #kah{{color:{INACTIVE_DARK}}}}}"))
+    } else { (String::new(), String::new()) };
     let button = match menu {
         Some(token) => format!(
             "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);\
-height:var(--ic,19px);padding:calc(var(--ic,19px)*{HOVER_PAD});border-radius:50%;transform:translate(-50%,-50%);color:#6f6f6f;cursor:default}}#kah:hover{{background:rgba(0,0,0,{HOVER_LIGHT})}}@media (prefers-color-scheme: dark){{#kah{{color:#b9b9b9}}#kah:hover{{background:rgba(255,255,255,.05)}}}}.off #kah{{color:{INACTIVE_LIGHT}}}@media (prefers-color-scheme: dark){{.off #kah{{color:{INACTIVE_DARK}}}}}</style><svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"{STROKE}\" \
+height:var(--ic,19px);padding:calc(var(--ic,19px)*{HOVER_PAD});border-radius:50%;transform:translate(-50%,-50%);color:#6f6f6f;cursor:default}}#kah:hover{{background:rgba(0,0,0,{HOVER_LIGHT})}}{dark_button}.off #kah{{color:{INACTIVE_LIGHT}}}{dark_off}</style><svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"{STROKE}\" \
 stroke-linecap=\"round\"><title>KakaoAdHide</title>{TOP_RECT}\
 <rect x=\"3\" y=\"13.5\" width=\"18\" height=\"6.5\" rx=\"3.25\"/></svg>\
 <script>document.getElementById('kah').addEventListener('click',function(){{\
@@ -99,16 +104,23 @@ if(off)c.add('off');else kt=setTimeout(function(){{c.remove('off')}},{ACTIVE_DEL
         ),
         None => String::new(),
     };
-    format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">\
-<meta name=\"color-scheme\" content=\"light dark\"><style>\
+    let light = format!("background:linear-gradient(to right,{LIGHT_SIDEBAR} var(--sb,{SIDEBAR_WIDTH}px),{LIGHT_LIST} var(--sb,{SIDEBAR_WIDTH}px))");
+    let background = if DARK_MODE {
+        format!("<meta name=\"color-scheme\" content=\"light dark\"><style>\
 html,body{{margin:0;height:100%;overflow:hidden;\
 background:linear-gradient(to right,{DARK_SIDEBAR} var(--sb,{SIDEBAR_WIDTH}px),{DARK_LIST} var(--sb,{SIDEBAR_WIDTH}px))}}\
-@media (prefers-color-scheme: light){{html,body{{\
-background:linear-gradient(to right,{LIGHT_SIDEBAR} var(--sb,{SIDEBAR_WIDTH}px),{LIGHT_LIST} var(--sb,{SIDEBAR_WIDTH}px))}}}}\
-</style></head><body>{size}{button}{WEBVIEW_READY}</body></html>"
+@media (prefers-color-scheme: light){{html,body{{{light}}}}}")
+    } else {
+        format!("<meta name=\"color-scheme\" content=\"light\"><style>html,body{{margin:0;height:100%;overflow:hidden;{light}}}")
+    };
+    format!(
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">\
+{background}</style></head><body>{size}{button}{WEBVIEW_READY}</body></html>"
     )
 }
+
+/// Whether the blank ad follows the system's dark mode: macOS, where KakaoTalk does too.
+const DARK_MODE: bool = cfg!(target_os = "macos");
 
 /// KakaoTalk for Windows shows the ad in WebView2 and sends it "ReadyToListen"; an ad that doesn't answer
 /// "AdLoaded" with result true counts as failed, and KakaoTalk swaps in its built-in fallback banner. Real ads
@@ -215,7 +227,9 @@ mod tests {
         assert_eq!(links.len(), 7);
         assert!(links.iter().all(|u| u.starts_with(LOCAL)), "{links:?}");
         let html = ad["content"].as_str().unwrap();
-        assert!(html.contains("#222222") && html.contains(&format!("{SIDEBAR_WIDTH}px")));
+        assert!(html.contains(LIGHT_SIDEBAR) && html.contains(&format!("{SIDEBAR_WIDTH}px")));
+        // dark colours only where KakaoTalk has a dark mode
+        assert_eq!(html.contains(DARK_SIDEBAR) || html.contains("prefers-color-scheme: dark"), DARK_MODE);
         // the only scripts size the sidebar and answer the WebView2 handshake: no network access, no tracking
         assert_eq!(html.matches("<script").count(), 2);
         let ((num, den), (inum, iden)) = (SIDEBAR_PER_SLOT, ICON_PER_SLOT);
