@@ -34,7 +34,10 @@ done
 
 tmp="$(mktemp -d)"
 keychain=""
+search_list=()
 cleanup() {
+  # put the user's keychain search list back as it was
+  [[ ${#search_list[@]} -gt 0 ]] && security list-keychains -d user -s "${search_list[@]}" 2>/dev/null || true
   [[ -n "$keychain" ]] && security delete-keychain "$keychain" 2>/dev/null || true
   rm -rf "$tmp"
 }
@@ -57,6 +60,11 @@ if [[ -n "$p12" ]]; then
   security unlock-keychain -p "$kpw" "$keychain"
   security import "$p12" -k "$keychain" -P "$(cat "$pw_file")" -T /usr/bin/codesign >/dev/null
   security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kpw" "$keychain" >/dev/null
+  # codesign looks the key up through the search list (--keychain alone fails on the CI runners), so the build
+  # keychain joins it for this build; cleanup restores the original list.
+  while IFS= read -r k; do k="${k#"${k%%[![:space:]]*}"}"; k="${k#\"}"; k="${k%\"}"; [[ -n "$k" ]] && search_list+=("$k"); done \
+    < <(security list-keychains -d user)
+  security list-keychains -d user -s "$keychain" "${search_list[@]}"
   identity="$(security find-identity -p codesigning "$keychain" | awk '/KakaoAdHide Code Signing/ {print $2; exit}')"
   [[ -n "$identity" ]] || { echo "no 'KakaoAdHide Code Signing' identity in $p12" >&2; exit 1; }
 fi
