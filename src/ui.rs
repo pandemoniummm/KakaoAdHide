@@ -6,8 +6,8 @@ use crate::updater::{self, Check};
 use crate::{platform, VERSION};
 use std::time::Duration;
 use tao::event::{Event, StartCause};
-use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
-use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 pub fn message(title: &str, text: &str) {
@@ -34,7 +34,7 @@ const CONSENT: &str = "카카오톡 광고 칸을 비우려면 처음 한 번 �
 같은 광고 주소를 쓰는 웹사이트(다음 등)의 광고도 함께 안 보일 수 있습니다. 제거하면 모두 원래대로 돌아갑니다.";
 
 enum UserEvent {
-    Menu(tray_icon::menu::MenuId),
+    Menu(MenuId),
     UpdateChecked(Result<Check, String>, bool),
     TimerCheck,
     RouteCheck,
@@ -180,6 +180,154 @@ impl App {
     }
 }
 
+// ---------------------------------------------------------------- event handlers (true: exit)
+
+impl App {
+    /// First event: setup and server, KakaoTalk (Windows, started by hand), the tray icon, the blank ad's menu.
+    fn init(&mut self, at_sign_in: bool, target: &EventLoopWindowTarget<UserEvent>) {
+        platform::first_run();
+        let updated_from = updater::note_version();
+        self.start(true);
+        #[cfg(windows)]
+        platform::start_kakao(at_sign_in);
+        #[cfg(not(windows))]
+        let _ = (at_sign_in, target);
+        let menu = self.build_menu();
+        let i = icon(false, self.status != Status::Serving);
+        let builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(format!("KakaoAdHide {VERSION}"));
+        #[cfg(target_os = "macos")]
+        let builder = builder.with_icon_templated(i);
+        #[cfg(not(target_os = "macos"))]
+        let builder = builder.with_icon(i);
+        self.tray = builder.build().ok();
+        self.refresh();
+        if let Some(prev) = &updated_from {
+            message("업데이트했습니다", &format!("KakaoAdHide {VERSION}(으)로 업데이트되었습니다.\n(이전 버전 {prev})"));
+        }
+        #[cfg(windows)]
+        {
+            // the menu opened from the blank ad's button
+            self.menu_window = tao::window::WindowBuilder::new().with_visible(false).with_title("KakaoAdHide").build(target).ok();
+            if self.menu_window.is_some() {
+                let p = self.proxy.clone();
+                crate::server::set_menu_handler(menu_token(), move || { let _ = p.send_event(UserEvent::ShowMenu); });
+            }
+        }
+    }
+
+    /// The blank ad's button was clicked: the tray's menu at the cursor.
+    #[cfg(windows)]
+    fn show_menu(&mut self) {
+        use tao::platform::windows::WindowExtWindows;
+        use tray_icon::menu::ContextMenu;
+        let Some(hwnd) = self.menu_window.as_ref().map(WindowExtWindows::hwnd) else { return };
+        // the same menu as the tray's (one menu, so its items match what the event handler expects)
+        let menu = self.build_menu();
+        if let Some(t) = &self.tray { t.set_menu(Some(Box::new(menu.clone()))); }
+        platform::take_foreground(hwnd);
+        unsafe { menu.show_context_menu_for_hwnd(hwnd, None); }
+    }
+
+    fn route_check(&mut self) {
+        let next = match &self.status {
+            Status::Serving if !setup::routed() => Some(Status::NotRouted),
+            Status::NotRouted if setup::routed() => Some(Status::Serving),
+            _ => None,
+        };
+        if let Some(n) = next { self.status = n; self.refresh(); }
+    }
+
+    fn update_checked(&mut self, result: Result<Check, String>, interactive: bool) -> bool {
+        match result {
+            Ok(Check::Available(f)) => {
+                let skipped = updater::skipped().as_deref() == Some(f.version.as_str());
+                if !interactive && skipped { return false; }
+                self.pending = Some(f.clone());
+                self.refresh();
+                let first_notice = updater::notified().as_deref() != Some(f.version.as_str());
+                if interactive || first_notice {
+                    updater::set_notified(&f.version);
+                    return self.offer(f);
+                }
+            }
+            Ok(Check::UpToDate) => {
+                self.pending = None;
+                self.refresh();
+                if interactive { message("최신 버전입니다", &format!("KakaoAdHide {VERSION}")); }
+            }
+            Err(e) => if interactive { message("업데이트를 확인하지 못했습니다", &e) },
+        }
+        false
+    }
+
+    fn action(&self, id: &MenuId) -> Option<Action> {
+        let items = self.items.as_ref()?;
+        [
+            (items.setup.id(), Action::Setup), (items.check.id(), Action::Check), (items.update.id(), Action::Update),
+            (items.changes.id(), Action::Changes), (items.skip.id(), Action::Skip), (items.auto_check.id(), Action::AutoCheck),
+            (items.login.id(), Action::Login), (items.uninstall.id(), Action::Uninstall), (items.quit.id(), Action::Quit),
+        ].into_iter().find(|(i, _)| *i == id).map(|(_, a)| a)
+    }
+
+    fn menu(&mut self, id: &MenuId) -> bool {
+        match self.action(id) {
+            Some(Action::Setup) => {
+                if self.status == Status::NotRouted {
+                    if let Err(e) = platform::set_hosts(true) { message("설정을 마치지 못했습니다", &e); }
+                    self.status = if setup::routed() { Status::Serving } else { Status::NotRouted };
+                } else {
+                    platform::set("Consented", None);
+                    self.start(true);
+                }
+                self.refresh();
+            }
+            Some(Action::Check) => self.check_updates(true),
+            Some(Action::Update) => if let Some(f) = self.pending.clone() { return self.install(f) },
+            Some(Action::Changes) => if let Some(f) = &self.pending { platform::open_url(&f.page_url()) },
+            Some(Action::Skip) => {
+                if let Some(f) = self.pending.take() { updater::skip(&f.version); }
+                self.refresh();
+            }
+            Some(Action::AutoCheck) => { updater::set_enabled(!updater::enabled()); self.refresh(); }
+            Some(Action::Login) => {
+                if let Err(e) = platform::set_login_item(!platform::login_item_enabled()) { message("로그인 항목을 바꾸지 못했습니다", &e); }
+                self.refresh();
+            }
+            Some(Action::Uninstall) => {
+                if !confirm_label("KakaoAdHide 제거", "제거할까요? 인증서, hosts 파일에 넣은 줄, 설정을 지우고 앱을 삭제합니다. 카카오톡은 그대로입니다.", "제거", "취소") {
+                    return false;
+                }
+                match platform::uninstall(false) {
+                    Ok(()) => if cfg!(target_os = "macos") { message("제거했습니다", "KakaoAdHide를 지웠습니다.") },
+                    Err(e) => message("일부를 정리하지 못했습니다", &e),
+                }
+                return true;
+            }
+            Some(Action::Quit) => return true,
+            None => {}
+        }
+        false
+    }
+}
+
+/// Background timers: update checks a minute after start and then daily; every 10 minutes whether the ad hosts are
+/// still sent here (hosts file edited, resolver cache).
+fn start_timers(proxy: &EventLoopProxy<UserEvent>) {
+    let p = proxy.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(60));
+        loop {
+            let _ = p.send_event(UserEvent::TimerCheck);
+            std::thread::sleep(Duration::from_secs(24 * 60 * 60));
+        }
+    });
+    let p = proxy.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(10 * 60));
+        let _ = p.send_event(UserEvent::RouteCheck);
+    });
+}
+
 pub fn run(at_sign_in: bool) -> ! {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     #[cfg(target_os = "macos")]
@@ -199,26 +347,7 @@ pub fn run(at_sign_in: bool) -> ! {
         let p = proxy.clone();
         platform::watch_quit_event(move || { let _ = p.send_event(UserEvent::Quit); std::thread::sleep(Duration::from_secs(3)); std::process::exit(0); });
     }
-    {
-        // a minute after start, then once a day
-        let p = proxy.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(60));
-            loop {
-                let _ = p.send_event(UserEvent::TimerCheck);
-                std::thread::sleep(Duration::from_secs(24 * 60 * 60));
-            }
-        });
-    }
-
-    {
-        // every 10 minutes: are the ad hosts still sent here (hosts file edited, resolver cache)?
-        let p = proxy.clone();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_secs(600));
-            let _ = p.send_event(UserEvent::RouteCheck);
-        });
-    }
+    start_timers(&proxy);
 
     let mut app = App {
         status: Status::NotSetUp, pending: None, tray: None, items: None, proxy,
@@ -226,130 +355,20 @@ pub fn run(at_sign_in: bool) -> ! {
         menu_window: None,
     };
 
-    event_loop.run(move |event, _target, control_flow| {
+    event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::Wait;
-        match event {
-            Event::NewEvents(StartCause::Init) => {
-                platform::first_run();
-                let updated_from = updater::note_version();
-                app.start(true);
-                #[cfg(windows)]
-                platform::start_kakao(at_sign_in);
-                #[cfg(not(windows))]
-                let _ = at_sign_in;
-                let menu = app.build_menu();
-                let i = icon(false, app.status != Status::Serving);
-                let builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(format!("KakaoAdHide {VERSION}"));
-                #[cfg(target_os = "macos")]
-                let builder = builder.with_icon_templated(i);
-                #[cfg(not(target_os = "macos"))]
-                let builder = builder.with_icon(i);
-                app.tray = builder.build().ok();
-                app.refresh();
-                if let Some(prev) = &updated_from {
-                    message("업데이트했습니다", &format!("KakaoAdHide {VERSION}(으)로 업데이트되었습니다.
-(이전 버전 {prev})"));
-                }
-                #[cfg(windows)]
-                {
-                    // the menu opened from the blank ad's logo
-                    app.menu_window = tao::window::WindowBuilder::new().with_visible(false).with_title("KakaoAdHide").build(_target).ok();
-                    if app.menu_window.is_some() {
-                        let p = app.proxy.clone();
-                        crate::server::set_menu_handler(menu_token(), move || { let _ = p.send_event(UserEvent::ShowMenu); });
-                    }
-                }
-            }
+        let exit = match event {
+            Event::NewEvents(StartCause::Init) => { app.init(at_sign_in, target); false }
             #[cfg(windows)]
-            Event::UserEvent(UserEvent::ShowMenu) => {
-                use tao::platform::windows::WindowExtWindows;
-                use tray_icon::menu::ContextMenu;
-                let Some(hwnd) = app.menu_window.as_ref().map(|w| w.hwnd()) else { return };
-                // the same menu as the tray's (one menu, so its items match what the event handler expects)
-                let menu = app.build_menu();
-                if let Some(t) = &app.tray { t.set_menu(Some(Box::new(menu.clone()))); }
-                platform::take_foreground(hwnd);
-                unsafe { menu.show_context_menu_for_hwnd(hwnd, None); }
-            }
-            Event::UserEvent(UserEvent::Quit) => *control_flow = ControlFlow::Exit,
-            Event::UserEvent(UserEvent::RouteCheck) => {
-                let next = match &app.status {
-                    Status::Serving if !setup::routed() => Some(Status::NotRouted),
-                    Status::NotRouted if setup::routed() => Some(Status::Serving),
-                    _ => None,
-                };
-                if let Some(n) = next { app.status = n; app.refresh(); }
-            }
-            Event::UserEvent(UserEvent::TimerCheck) => if updater::enabled() { app.check_updates(false) },
-            Event::UserEvent(UserEvent::UpdateChecked(result, interactive)) => {
-                match result {
-                    Ok(Check::Available(f)) => {
-                        let skipped = updater::skipped().as_deref() == Some(f.version.as_str());
-                        if interactive || !skipped {
-                            app.pending = Some(f.clone());
-                            app.refresh();
-                            let first_notice = updater::notified().as_deref() != Some(f.version.as_str());
-                            if interactive || first_notice {
-                                updater::set_notified(&f.version);
-                                if app.offer(f) { *control_flow = ControlFlow::Exit; }
-                            }
-                        }
-                    }
-                    Ok(Check::UpToDate) => {
-                        app.pending = None;
-                        app.refresh();
-                        if interactive { message("최신 버전입니다", &format!("KakaoAdHide {VERSION}")); }
-                    }
-                    Err(e) => if interactive { message("업데이트를 확인하지 못했습니다", &e) },
-                }
-            }
-            Event::UserEvent(UserEvent::Menu(id)) => {
-                let Some(items) = &app.items else { return };
-                let action = [
-                    (items.setup.id(), Action::Setup), (items.check.id(), Action::Check), (items.update.id(), Action::Update),
-                    (items.changes.id(), Action::Changes), (items.skip.id(), Action::Skip), (items.auto_check.id(), Action::AutoCheck),
-                    (items.login.id(), Action::Login), (items.uninstall.id(), Action::Uninstall), (items.quit.id(), Action::Quit),
-                ].into_iter().find(|(i, _)| **i == id).map(|(_, a)| a);
-                match action {
-                    Some(Action::Setup) => {
-                        if app.status == Status::NotRouted {
-                            if let Err(e) = platform::set_hosts(true) { message("설정을 마치지 못했습니다", &e); }
-                            app.status = if setup::routed() { Status::Serving } else { Status::NotRouted };
-                        } else {
-                            platform::set("Consented", None);
-                            app.start(true);
-                        }
-                        app.refresh();
-                    }
-                    Some(Action::Check) => app.check_updates(true),
-                    Some(Action::Update) => {
-                        if let Some(f) = app.pending.clone() { if app.install(f) { *control_flow = ControlFlow::Exit; } }
-                    }
-                    Some(Action::Changes) => if let Some(f) = &app.pending { platform::open_url(&f.page_url()) },
-                    Some(Action::Skip) => {
-                        if let Some(f) = app.pending.take() { updater::skip(&f.version); }
-                        app.refresh();
-                    }
-                    Some(Action::AutoCheck) => { updater::set_enabled(!updater::enabled()); app.refresh(); }
-                    Some(Action::Login) => {
-                        if let Err(e) = platform::set_login_item(!platform::login_item_enabled()) { message("로그인 항목을 바꾸지 못했습니다", &e); }
-                        app.refresh();
-                    }
-                    Some(Action::Uninstall) => {
-                        if confirm_label("KakaoAdHide 제거", "제거할까요? 인증서, hosts 파일에 넣은 줄, 설정을 지우고 앱을 삭제합니다. 카카오톡은 그대로입니다.", "제거", "취소") {
-                            match platform::uninstall(false) {
-                                Ok(()) => if cfg!(target_os = "macos") { message("제거했습니다", "KakaoAdHide를 지웠습니다.") },
-                                Err(e) => message("일부를 정리하지 못했습니다", &e),
-                            }
-                            *control_flow = ControlFlow::Exit;
-                        }
-                    }
-                    Some(Action::Quit) => *control_flow = ControlFlow::Exit,
-                    None => {}
-                }
-            }
-            _ => {}
-        }
+            Event::UserEvent(UserEvent::ShowMenu) => { app.show_menu(); false }
+            Event::UserEvent(UserEvent::Quit) => true,
+            Event::UserEvent(UserEvent::RouteCheck) => { app.route_check(); false }
+            Event::UserEvent(UserEvent::TimerCheck) => { if updater::enabled() { app.check_updates(false); } false }
+            Event::UserEvent(UserEvent::UpdateChecked(result, interactive)) => app.update_checked(result, interactive),
+            Event::UserEvent(UserEvent::Menu(id)) => app.menu(&id),
+            _ => false,
+        };
+        if exit { *control_flow = ControlFlow::Exit; }
     })
 }
 
@@ -358,6 +377,8 @@ pub fn run(at_sign_in: bool) -> ! {
 /// updates.
 #[cfg(windows)]
 fn menu_token() -> String {
+    // A token kept from 2.1.0-2.2.0 (hash based) stays: replacing it would break the button in the blank ad
+    // KakaoTalk already holds until its next request (up to a day). It only guards popping the menu up.
     if let Some(t) = platform::get("MenuToken").filter(|t| t.len() == 32 && t.bytes().all(|b| b.is_ascii_hexdigit())) {
         return t;
     }
@@ -366,17 +387,17 @@ fn menu_token() -> String {
     t
 }
 
-/// 32 hex characters, random.
+/// 32 hex characters from the system's secure random source.
 #[cfg(windows)]
 fn random_token() -> String {
-    use std::hash::{BuildHasher, Hasher};
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    (0..2).map(|i| {
-        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-        h.write_u128(nanos);
-        h.write_u32(std::process::id() ^ i);
-        format!("{:016x}", h.finish())
-    }).collect()
+    use ring::rand::SecureRandom;
+    let mut b = [0u8; 16];
+    if ring::rand::SystemRandom::new().fill(&mut b).is_err() {
+        // practically never; still unguessable enough for what the token guards (popping the menu up)
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        b = (nanos ^ (u128::from(std::process::id()) << 64)).to_le_bytes();
+    }
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 /// The tray icon, drawn here (no image files): an ad banner with a slash; a dot when an update is waiting, an

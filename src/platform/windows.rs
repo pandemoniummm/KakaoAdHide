@@ -3,10 +3,10 @@
 //!     entry (HKCU\...\Uninstall\KakaoAdHide), settings in HKCU\Software\KakaoAdHide,
 //!   - mutex Local\KakaoAdHide (one instance), event Local\KakaoAdHide.Quit (asks a running copy to exit),
 //!   - --run, --uninstall, --update, --quiet, --verify-feed,
-//!   - KakaoTalk's own auto start is switched off (restored on uninstall) and KakaoAdHide starts KakaoTalk once
-//!     the local ad server is up, so KakaoTalk's first ad request already gets the blank one.
-//! Setting up the ad server needs the hosts file (administrator: the exe runs itself elevated with --hosts-add /
-//! --hosts-remove) and the certificate in the user's trusted roots (Windows shows a confirmation).
+//!   - KakaoTalk's own auto start is left as the user set it (see `release_kakao_autostart`).
+//!
+//! Setting up the ad server needs the hosts file (administrator: the exe runs itself elevated with `--hosts-add`
+//! or `--hosts-remove`) and the certificate in the user's trusted roots (Windows shows a confirmation).
 
 use crate::certs::Paths;
 use crate::feed::{self, Feed, VerifyError};
@@ -291,12 +291,11 @@ fn restore_kakao_autostart() {
 fn find_kakao() -> Option<PathBuf> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let mut c: Vec<PathBuf> = Vec::new();
-    if let Ok(app) = hkcu.open_subkey(APP_KEY) { if let Ok(p) = app.get_value::<String, _>("KakaoPath") { c.push(p.into()); } }
     if let Ok(run) = hkcu.open_subkey(RUN_KEY) {
         if let Some(p) = run.get_value::<String, _>(KAKAO_RUN_VALUE).ok().and_then(|v| exe_from_command_line(&v)) { c.push(p.into()); }
     }
     for base in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] { c.push(env_dir(base).join(r"Kakao\KakaoTalk\KakaoTalk.exe")); }
-    c.into_iter().find(|p| p.as_os_str().len() > 0 && p.exists())
+    c.into_iter().find(|p| !p.as_os_str().is_empty() && p.exists())
 }
 
 pub fn exe_from_command_line(cmd: &str) -> Option<String> {
@@ -306,10 +305,27 @@ pub fn exe_from_command_line(cmd: &str) -> Option<String> {
     (i > 0).then(|| cmd[..i + 4].to_string())
 }
 
+/// Whether a KakaoTalk.exe process runs (a process snapshot, no external program).
 fn kakao_running() -> bool {
-    use std::os::windows::process::CommandExt;
-    Command::new("tasklist").args(["/FI", "IMAGENAME eq KakaoTalk.exe", "/NH"]).creation_flags(0x0800_0000)
-        .output().map(|o| String::from_utf8_lossy(&o.stdout).to_ascii_lowercase().contains("kakaotalk.exe")).unwrap_or(false)
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE { return false; }
+        let mut e: PROCESSENTRY32W = std::mem::zeroed();
+        e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = false;
+        let mut ok = Process32FirstW(snap, &mut e) != 0;
+        while ok && !found {
+            let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+            found = String::from_utf16_lossy(&e.szExeFile[..len]).eq_ignore_ascii_case("KakaoTalk.exe");
+            ok = Process32NextW(snap, &mut e) != 0;
+        }
+        CloseHandle(snap);
+        found
+    }
 }
 
 /// When started by hand (after installing, or from the Start menu), also starts KakaoTalk unless it already runs.

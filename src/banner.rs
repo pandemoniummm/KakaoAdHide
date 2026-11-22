@@ -32,23 +32,37 @@ pub const LIGHT_SIDEBAR: &str = "#f5f5f5";
 pub const LIGHT_SIDEBAR: &str = "#ededed";
 pub const LIGHT_LIST: &str = "#ffffff";
 
-/// The blank ad. With `menu` (the server's menu token), it also shows the app's logo at the right; clicking it
-/// asks MENU_URL on this computer's KakaoAdHide, which opens its menu at the cursor. That one request is the only
-/// one the page can make, and only when clicked. Without `menu`: no logo, no requests at all.
+/// The menu button's size over the slot height, like SIDEBAR_PER_SLOT (Windows: KakaoTalk's sidebar icons are
+/// 36 px in a 188 px slot at 150%).
+pub const ICON_PER_SLOT: (u32, u32) = (36, 188);
+
+/// The blank ad. With `menu` (the server's menu token) it also shows the menu button; clicking it asks MENU_URL on
+/// this computer's KakaoAdHide, which opens its menu at the cursor. That one request is the only one the page can
+/// make, and only when clicked. Without `menu`: no button, no requests at all.
 pub fn html(menu: Option<&str>) -> String {
-    let (num, den) = SIDEBAR_PER_SLOT;
-    // The menu button sits in the sidebar part, under KakaoTalk's own sidebar icons, drawn like them: a grey
-    // outline icon (the tray icon's banner with a slash), sized and centred from the slot height like the sidebar.
-    let logo = match menu {
+    let ((sn, sd), (inum, iden)) = (SIDEBAR_PER_SLOT, ICON_PER_SLOT);
+    // Sidebar part width (--sb) and button size (--ic) from the slot height, again on every resize.
+    let size = format!(
+        "<script>var size=function(){{var s=document.documentElement.style;\
+s.setProperty('--sb',(innerHeight*{sn}/{sd})+'px');s.setProperty('--ic',(innerHeight*{inum}/{iden})+'px')}};\
+size();window.addEventListener('resize',size);</script>"
+    );
+    // The button sits in the sidebar part, under KakaoTalk's own sidebar icons, drawn like them: a grey outline
+    // icon (the tray icon's banner with a slash).
+    let button = match menu {
         Some(token) => format!(
-            "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);height:var(--ic,19px);transform:translate(-50%,-50%);color:#6f6f6f;cursor:pointer}}#kah:hover{{color:#3c3c3c}}@media (prefers-color-scheme: dark){{#kah{{color:#9a9a9a}}#kah:hover{{color:#e0e0e0}}}}</style><svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"><title>KakaoAdHide</title><rect x=\"2.5\" y=\"6.5\" width=\"19\" height=\"11\" rx=\"2.5\"/><path d=\"M4 20 L20 4\"/></svg><script>document.documentElement.style.setProperty('--ic',(innerHeight*36/188)+'px');window.addEventListener('resize',function(){{document.documentElement.style.setProperty('--ic',(innerHeight*36/188)+'px')}});document.getElementById('kah').addEventListener('click',function(){{fetch('{MENU_URL}?t={token}',{{mode:'no-cors',cache:'no-store'}}).catch(function(){{}})}});document.addEventListener('contextmenu',function(e){{e.preventDefault()}});</script>"
+            "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);\
+height:var(--ic,19px);transform:translate(-50%,-50%);color:#6f6f6f;cursor:pointer}}#kah:hover{{color:#3c3c3c}}\
+@media (prefers-color-scheme: dark){{#kah{{color:#9a9a9a}}#kah:hover{{color:#e0e0e0}}}}</style>\
+<svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" \
+stroke-linecap=\"round\"><title>KakaoAdHide</title><rect x=\"2.5\" y=\"6.5\" width=\"19\" height=\"11\" rx=\"2.5\"/>\
+<path d=\"M4 20 L20 4\"/></svg>\
+<script>document.getElementById('kah').addEventListener('click',function(){{\
+fetch('{MENU_URL}?t={token}',{{mode:'no-cors',cache:'no-store'}}).catch(function(){{}})}});\
+document.addEventListener('contextmenu',function(e){{e.preventDefault()}});</script>"
         ),
         None => String::new(),
     };
-    let size_sidebar = format!(
-        "<script>var sb=function(){{document.documentElement.style.setProperty('--sb',(innerHeight*{num}/{den})+'px')}};\
-sb();window.addEventListener('resize',sb);</script>"
-    );
     format!(
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">\
 <meta name=\"color-scheme\" content=\"light dark\"><style>\
@@ -56,7 +70,7 @@ html,body{{margin:0;height:100%;overflow:hidden;\
 background:linear-gradient(to right,{DARK_SIDEBAR} var(--sb,{SIDEBAR_WIDTH}px),{DARK_LIST} var(--sb,{SIDEBAR_WIDTH}px))}}\
 @media (prefers-color-scheme: light){{html,body{{\
 background:linear-gradient(to right,{LIGHT_SIDEBAR} var(--sb,{SIDEBAR_WIDTH}px),{LIGHT_LIST} var(--sb,{SIDEBAR_WIDTH}px))}}}}\
-</style></head><body>{size_sidebar}{logo}{WEBVIEW_READY}</body></html>"
+</style></head><body>{size}{button}{WEBVIEW_READY}</body></html>"
     )
 }
 
@@ -81,6 +95,24 @@ const LOCAL: &str = "https://serv.ds.kakao.com/ev/";
 
 /// The blank ad's logo asks this to open the app's menu (see server::MENU_PATH).
 pub const MENU_URL: &str = "https://serv.ds.kakao.com/kakaoadhide/menu";
+
+/// KakaoTalk's ad placements that get the blank ad: the bottom banner, which can't be removed, only filled.
+/// Every other placement (Windows: a popup by the tray on the first start of the day) gets no ad, so it doesn't
+/// open. macOS: not known yet, so every placement gets the blank ad as before.
+#[cfg(windows)]
+pub const BOTTOM_BANNER_UNITS: &[&str] = &["DAN-FTsOAPU4yZ6oHLGy"];   // KakaoTalk for Windows 26.10
+
+pub fn is_bottom_banner(unit: Option<&str>) -> bool {
+    #[cfg(windows)]
+    { unit.is_none_or(|u| BOTTOM_BANNER_UNITS.contains(&u)) }   // no id: the old request shape, a banner
+    #[cfg(not(windows))]
+    { let _ = unit; true }
+}
+
+/// "No ad": an empty list. For a popup placement that means nothing to show.
+pub fn no_ad_json() -> String {
+    serde_json::json!({ "status": "OK", "id": "00000000-0000-0000-0000-000000000000", "ads": [] }).to_string()
+}
 
 /// The /sdk/banner response, in the field set of a real ad (KakaoTalk for Windows 26.10 checks more than macOS).
 /// refreshInterval is a day: there is nothing to refresh (KakaoTalk asks again by itself; this only sets when).
@@ -146,8 +178,9 @@ mod tests {
         assert!(html.contains("#222222") && html.contains(&format!("{SIDEBAR_WIDTH}px")));
         // the only scripts size the sidebar and answer the WebView2 handshake: no network access, no tracking
         assert_eq!(html.matches("<script").count(), 2);
-        let (num, den) = SIDEBAR_PER_SLOT;
+        let ((num, den), (inum, iden)) = (SIDEBAR_PER_SLOT, ICON_PER_SLOT);
         assert!(html.contains(&format!("innerHeight*{num}/{den}")) && html.contains("var(--sb,"));
+        assert!(html.contains(&format!("innerHeight*{inum}/{iden}")));
         assert!(html.contains("AdLoaded"));
         for banned in ["http:", "https:", "//", "src=", "fetch", "XMLHttpRequest", "WebSocket", "sendBeacon", "import"] {
             assert!(!html.contains(banned), "blank ad must not load anything: found {banned}");

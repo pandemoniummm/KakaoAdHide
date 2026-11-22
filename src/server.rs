@@ -127,8 +127,10 @@ fn serve(mut tcp: TcpStream, cfg: Arc<ServerConfig>) -> std::io::Result<()> {
     for _ in 0..32 {
         let Some(req) = read_request(&mut reader)? else { return Ok(()) };
         if req.path == MENU_PATH { open_menu(&req.query); }
-        let (status, ctype, body) = respond(&req.method, &req.path);
-        log(&format!("{peer} {sni} {} {} -> {status}", req.method, req.path));
+        let (status, ctype, body) = respond(&req.method, &req.path, &req.query);
+        // the ad placement (a fixed id per placement, nothing about the user) shows which slot asked
+        let unit = if req.path == "/sdk/banner" { ad_unit(&req.query).map(|u| format!(" [{u}]")).unwrap_or_default() } else { String::new() };
+        log(&format!("{peer} {sni} {} {}{unit} -> {status}", req.method, req.path));
         let head = format!(
             "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\n",
             body.len()
@@ -191,9 +193,19 @@ fn read_request(r: &mut impl BufRead) -> std::io::Result<Option<Request>> {
     Ok(Some(Request { method, path, query }))
 }
 
-pub fn respond(method: &str, path: &str) -> (&'static str, &'static str, String) {
+/// The ad placement a /sdk/banner request is for (its `id` parameter, e.g. DAN-FTsOAPU4yZ6oHLGy).
+pub fn ad_unit(query: &str) -> Option<&str> {
+    query.split('&').find_map(|kv| kv.strip_prefix("id=")).filter(|u| !u.is_empty() && u.len() <= 64)
+}
+
+pub fn respond(method: &str, path: &str, query: &str) -> (&'static str, &'static str, String) {
     if (method == "GET" || method == "HEAD") && path == "/sdk/banner" {
-        ("200 OK", "application/json", crate::banner::response_json(menu_token().as_deref()))
+        let body = if crate::banner::is_bottom_banner(ad_unit(query)) {
+            crate::banner::response_json(menu_token().as_deref())
+        } else {
+            crate::banner::no_ad_json()
+        };
+        ("200 OK", "application/json", body)
     } else {
         ("204 No Content", "text/plain", String::new())
     }
@@ -224,9 +236,16 @@ mod tests {
 
     #[test]
     fn routes() {
-        assert_eq!(respond("GET", "/sdk/banner").0, "200 OK");
-        assert_eq!(respond("GET", "/anything/else").0, "204 No Content");
-        assert_eq!(respond("POST", "/sdk/banner").0, "204 No Content");
+        assert_eq!(respond("GET", "/sdk/banner", "").0, "200 OK");
+        assert_eq!(respond("GET", "/anything/else", "").0, "204 No Content");
+        assert_eq!(respond("POST", "/sdk/banner", "").0, "204 No Content");
+        // the bottom banner gets the blank ad; another placement (Windows) no ad at all
+        let blank = respond("GET", "/sdk/banner", "cnt=1&id=DAN-FTsOAPU4yZ6oHLGy&os=windows").2;
+        assert!(blank.contains("\"ads\":[{"));
+        let other = respond("GET", "/sdk/banner", "cnt=1&id=DAN-somethingElse").2;
+        if cfg!(windows) { assert!(other.contains("\"ads\":[]")); } else { assert!(other.contains("\"ads\":[{")); }
+        assert_eq!(ad_unit("a=1&id=DAN-x&b=2"), Some("DAN-x"));
+        assert_eq!(ad_unit("a=1"), None);
     }
 
     #[test]
