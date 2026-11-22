@@ -46,6 +46,15 @@ jobs:
           name: KakaoAdHide-macos
           path: dist/KakaoAdHide-macos.dmg
 
+  # The universal app also runs on Intel Macs: run the tests natively there.
+  test-macos-intel:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Test
+        run: cargo test --locked
+
   # ---------------------------------------------------------------------------------------------------------
   # On a v* tag: build both apps, sign both update feeds with the SIGNING_PRIVATE_KEY secret, check each feed
   # with the app built for it, and upload everything as a DRAFT release. Nothing reaches users until the draft

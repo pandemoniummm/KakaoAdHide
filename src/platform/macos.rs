@@ -234,6 +234,22 @@ pub fn extract_verified_app(dmg: &Path, work: &Path, version: &str) -> Result<Pa
     result
 }
 
+/// Swaps the app once the running copy (pid) has exited, putting the old one back if the swap fails, then
+/// opens whichever is in place. Arguments: pid, new app, installed app, work folder (removed at the end).
+const REPLACE_SCRIPT: &str = r#"#!/bin/bash
+pid="$1"; src="$2"; dst="$3"; work="$4"
+for _ in $(seq 1 300); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
+sleep 0.3
+dir="$(dirname "$dst")"; name="$(basename "$dst")"
+staged="$dir/.$name.update-$$"; previous="$dir/.$name.previous-$$"
+if /usr/bin/ditto "$src" "$staged" && /bin/mv "$dst" "$previous"; then
+  if /bin/mv "$staged" "$dst"; then /bin/rm -rf "$previous"; else /bin/mv "$previous" "$dst"; fi
+fi
+/bin/rm -rf "$staged"
+/usr/bin/open "$dst"
+/bin/rm -rf "$work"
+"#;
+
 /// Downloads, verifies and hands over to a script that swaps the app once this process has exited (restoring
 /// the old one if the swap fails) and opens it. The caller quits on Ok.
 pub fn install_update(feed: &Feed) -> Result<(), crate::updater::InstallError> {
@@ -247,19 +263,7 @@ pub fn install_update(feed: &Feed) -> Result<(), crate::updater::InstallError> {
     feed::verify_file(feed, &dmg, keys::PUBLIC_KEYS).map_err(InstallError::Verify)?;
     let new_app = extract_verified_app(&dmg, &work, &feed.version).map_err(InstallError::Verify)?;
     let script = work.join("replace.sh");
-    std::fs::write(&script, r#"#!/bin/bash
-pid="$1"; src="$2"; dst="$3"; work="$4"
-for _ in $(seq 1 300); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
-sleep 0.3
-dir="$(dirname "$dst")"; name="$(basename "$dst")"
-staged="$dir/.$name.update-$$"; previous="$dir/.$name.previous-$$"
-if /usr/bin/ditto "$src" "$staged" && /bin/mv "$dst" "$previous"; then
-  if /bin/mv "$staged" "$dst"; then /bin/rm -rf "$previous"; else /bin/mv "$previous" "$dst"; fi
-fi
-/bin/rm -rf "$staged"
-/usr/bin/open "$dst"
-/bin/rm -rf "$work"
-"#).map_err(|e| InstallError::Io(e.to_string()))?;
+    std::fs::write(&script, REPLACE_SCRIPT).map_err(|e| InstallError::Io(e.to_string()))?;
     Command::new("/bin/bash").arg(&script).arg(std::process::id().to_string()).arg(&new_app).arg(&app).arg(&work)
         .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
         .spawn().map_err(|e| InstallError::Io(e.to_string()))?;
@@ -276,4 +280,57 @@ pub fn verify_package(feed: &Feed, dmg: &Path) -> Result<(), VerifyError> {
     let r = extract_verified_app(dmg, &work, &feed.version).map(|_| ());
     let _ = std::fs::remove_dir_all(&work);
     r
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The swap script, against throwaway folders: replaces the app after the given process has exited.
+    #[test]
+    fn replace_script_swaps_the_app() {
+        let dir = std::env::temp_dir().join(format!("kah-replace-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (new, dst, work) = (dir.join("new/X.app"), dir.join("Applications/X.app"), dir.join("work"));
+        for d in [&new, &dst, &work] { std::fs::create_dir_all(d).unwrap(); }
+        std::fs::write(new.join("v"), "2").unwrap();
+        std::fs::write(dst.join("v"), "1").unwrap();
+        let script = work.join("replace.sh");
+        std::fs::write(&script, REPLACE_SCRIPT.replace("/usr/bin/open \"$dst\"", "true")).unwrap();
+        let mut sleeper = Command::new("/bin/sleep").arg("1").spawn().unwrap();
+        let pid = sleeper.id().to_string();
+        let reaper = std::thread::spawn(move || sleeper.wait());   // a zombie would still answer kill -0
+        let status = Command::new("/bin/bash").arg(&script).arg(&pid).arg(&new).arg(&dst).arg(&work).status().unwrap();
+        let _ = reaper.join();
+        assert!(status.success());
+        assert_eq!(std::fs::read_to_string(dst.join("v")).unwrap(), "2");
+        assert!(!work.exists());
+        let leftovers: Vec<_> = std::fs::read_dir(dir.join("Applications")).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(leftovers.len(), 1, "{leftovers:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Run by hand against disk images made by packaging/macos/build.sh --dmg:
+    //   KAH_SIGNED_DMG=<signed dmg> KAH_UNSIGNED_DMG=<ad-hoc dmg> KAH_DMG_VERSION=<version> \
+    //     cargo test -- --ignored disk_images
+    #[test]
+    #[ignore]
+    fn disk_images() {
+        let version = std::env::var("KAH_DMG_VERSION").unwrap();
+        let check = |var: &str| {
+            let work = std::env::temp_dir().join(format!("kah-dmg-{var}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&work);
+            std::fs::create_dir_all(&work).unwrap();
+            let r = extract_verified_app(Path::new(&std::env::var(var).unwrap()), &work, &version).map(|_| ());
+            let _ = std::fs::remove_dir_all(&work);
+            r
+        };
+        check("KAH_SIGNED_DMG").expect("signed image");
+        assert!(matches!(check("KAH_UNSIGNED_DMG"), Err(VerifyError::BadPackage(ref w)) if w.contains("서명")));
+        let work = std::env::temp_dir().join(format!("kah-dmg-ver-{}", std::process::id()));
+        std::fs::create_dir_all(&work).unwrap();
+        let r = extract_verified_app(Path::new(&std::env::var("KAH_SIGNED_DMG").unwrap()), &work, "0.0.1");
+        let _ = std::fs::remove_dir_all(&work);
+        assert!(matches!(r, Err(VerifyError::BadPackage(ref w)) if w.contains("버전")));
+    }
 }
