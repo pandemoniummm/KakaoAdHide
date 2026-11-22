@@ -40,10 +40,10 @@ pub const ICON_PER_SLOT: (u32, u32) = (20, 100);
 pub const ICON_PER_SLOT: (u32, u32) = (36, 188);
 
 /// On hover the button gets a round highlight like KakaoTalk's own sidebar icons (KakaoTalk for Mac 26.10: a
-/// 23.5 pt circle, the same size as theirs with ICON_PER_SLOT 20/100): padding on each side as a fraction of the
+/// 36 pt circle, the same size as theirs with ICON_PER_SLOT 20/100): padding on each side as a fraction of the
 /// icon size.
 #[cfg(target_os = "macos")]
-const HOVER_PAD: f64 = 0.0875;
+const HOVER_PAD: f64 = 0.4;
 #[cfg(not(target_os = "macos"))]
 const HOVER_PAD: f64 = 0.15;
 
@@ -59,7 +59,7 @@ s.setProperty('--sb',(innerHeight*{sn}/{sd})+'px');s.setProperty('--ic',(innerHe
 size();window.addEventListener('resize',size);</script>"
     );
     // The button sits in the sidebar part, under KakaoTalk's own sidebar icons, drawn like them: the app icon as
-    // a grey line icon (assets/icon-line.svg: a chat bubble, and the emptied ad slot dashed below it).
+    // a grey line icon (assets/icon-line.svg: a filled chat bubble, and the emptied ad slot outlined below it).
     let button = match menu {
         Some(token) => format!(
             "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);\
@@ -67,8 +67,8 @@ height:var(--ic,19px);padding:calc(var(--ic,19px)*{HOVER_PAD});border-radius:50%
 transform:translate(-50%,-50%);color:#6f6f6f;cursor:default}}#kah:hover{{background:rgba(0,0,0,.06)}}\
 @media (prefers-color-scheme: dark){{#kah{{color:#b9b9b9}}#kah:hover{{background:rgba(255,255,255,.05)}}}}</style>\
 <svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" \
-stroke-linecap=\"round\"><title>KakaoAdHide</title><rect x=\"3\" y=\"4\" width=\"18\" height=\"6.5\" rx=\"3.25\"/>\
-<rect x=\"3\" y=\"13.5\" width=\"18\" height=\"6.5\" rx=\"3.25\" stroke-dasharray=\"2.6 2.2\"/></svg>\
+stroke-linecap=\"round\"><title>KakaoAdHide</title><rect x=\"2\" y=\"3\" width=\"20\" height=\"8.5\" rx=\"4.25\" fill=\"currentColor\" stroke=\"none\"/>\
+<rect x=\"3\" y=\"13.5\" width=\"18\" height=\"6.5\" rx=\"3.25\"/></svg>\
 <script>document.getElementById('kah').addEventListener('click',function(){{\
 fetch('{MENU_URL}?t={token}',{{mode:'no-cors',cache:'no-store'}}).catch(function(){{}})}});\
 document.addEventListener('contextmenu',function(e){{e.preventDefault()}});</script>"
