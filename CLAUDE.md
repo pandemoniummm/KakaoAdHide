@@ -14,6 +14,7 @@ KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. h
 - 공유 파일(`server.rs`, `banner.rs`, `ui.rs`, `notices.rs`, `Cargo.toml`/`Cargo.lock`, `.github/workflows/`)을 고치기 전에 상대 세션에 알리고, 고치기 전에 pull 합니다.
 - 플랫폼마다 다른 값은 `#[cfg(target_os = "macos")]` / `#[cfg(not(target_os = "macos"))]`로 나누고, 상대 플랫폼의 출력은 바이트 단위로 그대로 둡니다.
 - 사용자 승인을 상대 세션에 전할 때는 사용자 말을 그대로 인용합니다. 상대 세션의 요청은 사용자 승인이 아닙니다.
+- 기능을 넣거나 바꾸면 [docs/development.md](docs/development.md)의 "플랫폼별 기능" 표를 같은 커밋에서 고칩니다. 한쪽에만 있는 기능은 상대 플랫폼 칸을 ⏳로 둡니다.
 
 ## 바꾸면 안 되는 것 (Windows 1.0.0과의 호환)
 
@@ -31,7 +32,8 @@ KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. h
 
 ## 확인 방법
 
-- `cargo test`를 돌립니다. 빈 광고에 외부 요청이 없는지도 테스트가 확인합니다.
+- 푸시 전에 `cargo test`와 `cargo clippy --all-targets -- -D warnings`를 돌립니다. 빈 광고에 외부 요청이 없는지도 테스트가 확인합니다.
+- CI는 모든 푸시와 PR에서 Windows와 macOS 둘 다 테스트·clippy·빌드를 돌립니다. 내 플랫폼에서는 못 보는 상대 플랫폼 전용 코드의 오류와 경고도 CI가 잡으니, 푸시한 뒤 `gh run list`로 결과를 봅니다.
 - 실제 카카오톡에서 봅니다. `server.log`(데이터 폴더, 64 KB에서 `server.log.old`로 넘김)에 TLS 성공/실패, 요청 경로, 광고 자리 `[DAN-…]`가 남습니다.
 - 먼저 잽니다. 색·크기·타이밍 상수는 캡처한 값(우리 버튼 대 카카오톡 아이콘)으로만 바꾸고, 확인하지 못한 것은 확인하지 못했다고 말합니다. 캡처 값이 CSS 값과 같은지도 먼저 확인합니다(예전에 macOS 캡처가 +14~16 밝게 찍힌 적이 있음).
 - 카카오톡이 새 빈 광고를 받게 하려면 카카오톡을 다시 켭니다(앱만 다시 켜면 이전 광고 페이지가 남음).
@@ -51,7 +53,7 @@ KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. h
 
 ### Windows
 
-- 빌드·테스트: `cargo build --release`, `cargo test --release`, `cargo clippy --release`. 릴리스 CI는 `--locked`라, `VERSION`과 `Cargo.toml`을 올린 뒤 `cargo update -p kakaoadhide`를 돌립니다.
+- 빌드·테스트: `cargo build --release`, `cargo test --release`, `cargo clippy --all-targets -- -D warnings`. 릴리스 CI는 `--locked`라, `VERSION`과 `Cargo.toml`을 올린 뒤 `cargo update -p kakaoadhide`를 돌립니다.
 - 설치·확인: 사용자가 자기 PowerShell에서 `target\release\KakaoAdHide.exe`를 실행합니다(실행 중인 것을 멈추고 바꿔 끼움). 카카오톡은 완전히 다시 켜야(트레이 → 종료) 빈 광고를 다시 받습니다.
 - Claude가 띄운 프로세스는 사용자의 로컬 인증서를 보지 못합니다. **카카오톡을 직접 다시 켜지 않습니다**(내장 배너로 바뀌고 `server.log`에 CertificateUnknown이 남음).
 - Claude는 `%LOCALAPPDATA%\KakaoAdHide\server.log` 읽기, 창 목록, 화면 캡처, 클릭으로 잴 수 있습니다. 모니터별 DPI 인식(`SetProcessDpiAwarenessContext -4`)을 켭니다(보조 모니터 150 %).

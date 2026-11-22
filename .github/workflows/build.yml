@@ -19,6 +19,10 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      # Lints on each platform's own code too: a warning in Windows-only code fails here, macOS-only in build-macos.
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
       - name: Build
         shell: powershell
         run: ./packaging/windows/build.ps1
@@ -37,6 +41,9 @@ jobs:
 
       - name: Test
         run: cargo test --locked
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       # Signed with the release certificate when the secrets are available (pushes to this repository), so the
       # signing step is exercised before a tag; ad-hoc signed otherwise (pull requests from forks).
