@@ -221,16 +221,26 @@ pub fn uninstall(quiet: bool) -> Result<(), String> {
     let _ = hkcu.delete_subkey_all(APP_KEY);
     let _ = std::fs::remove_dir_all(update_temp_dir());
     let _ = std::fs::remove_dir_all(setup::cert_dir());
+    for log in ["server.log", "server.log.old"] { let _ = std::fs::remove_file(data_dir().join(log)); }
     if !quiet {
         let extra = match &undo { Ok(()) => String::new(), Err(e) => format!("\n\n일부를 정리하지 못했습니다:\n{e}") };
         crate::ui::message("KakaoAdHide", &format!("제거했습니다.\n카카오톡 자동 실행은 원래대로 돌려 두었습니다.{extra}"));
     }
     // The exe can't delete itself while running: cmd does it after we exit (rmdir without /s only removes an
-    // empty folder, so nothing else that happens to be in there is touched).
+    // empty folder, so nothing else that happens to be in there is touched). Uninstalling from the tray menu runs
+    // in the app itself, which can take a while to exit, so cmd keeps retrying for about a minute.
     if installed_exe().exists() {
         use std::os::windows::process::CommandExt;
-        let cmd = format!("/c ping 127.0.0.1 -n 3 >nul & del /f /q \"{}\" & rmdir \"{}\"", installed_exe().display(), install_dir().display());
-        let _ = Command::new("cmd.exe").raw_arg(cmd).creation_flags(0x0800_0000).spawn();
+        let (exe, dir) = (installed_exe(), install_dir());
+        let cmd = format!(
+            "/c for /l %i in (1,1,30) do @(ping 127.0.0.1 -n 3 >nul & if exist \"{e}\" (del /f /q \"{e}\" 2>nul) & if not exist \"{e}\" (rmdir \"{d}\" 2>nul & exit))",
+            e = exe.display(), d = dir.display()
+        );
+        // Break away from a job the app may run in (one that kills its children on exit); fall back if not allowed.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+        let spawn = |flags| Command::new("cmd.exe").raw_arg(&cmd).creation_flags(flags).spawn();
+        if spawn(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB).is_err() { let _ = spawn(CREATE_NO_WINDOW); }
     }
     undo
 }
