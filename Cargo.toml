@@ -1,7 +1,7 @@
 [package]
 name = "kakaoadhide"
 # The released version comes from VERSION (build scripts check that it matches this).
-version = "2.2.0"
+version = "2.2.1"
 edition = "2021"
 license = "MIT"
 description = "Empties the ad banner of KakaoTalk for Windows and macOS by serving a blank ad locally"
