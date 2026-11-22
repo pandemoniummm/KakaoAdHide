@@ -416,12 +416,14 @@ pub fn register_notifications() {
 /// Shows a Windows notification: the title, then `text` as up to two lines (split at the first newline, so a
 /// sentence isn't broken mid-way). `on_click` runs (on a system thread) when it's clicked while this app runs.
 /// False if it couldn't be shown (notifications off for the app still count as shown: Windows keeps them quiet).
-pub fn notify(title: &str, text: &str, on_click: Option<Box<dyn Fn() + Send>>) -> bool {
+/// `buttons`: (label, id) pairs. `on_click` gets the clicked button's id, or None for the notification itself.
+pub fn notify(title: &str, text: &str, buttons: &[(&str, &str)], on_click: Option<Box<dyn Fn(Option<String>) + Send>>) -> bool {
     use tauri_winrt_notification::Toast;
     let (line1, line2) = text.split_once('\n').unwrap_or((text, ""));
     let mut t = Toast::new(NOTIFY_APP_ID).title(title).text1(line1);
     if !line2.is_empty() { t = t.text2(line2); }
-    if let Some(f) = on_click { t = t.on_activated(move |_| { f(); Ok(()) }); }
+    for (label, id) in buttons { t = t.add_button(label, id); }
+    if let Some(f) = on_click { t = t.on_activated(move |id| { f(id); Ok(()) }); }
     t.show().is_ok()
 }
 

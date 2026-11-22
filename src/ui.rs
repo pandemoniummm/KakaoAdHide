@@ -22,7 +22,7 @@ pub fn confirm(title: &str, text: &str, ok: &str, cancel: &str) -> bool { confir
 /// message box elsewhere for now.
 pub fn show(n: &Notice) {
     #[cfg(windows)]
-    if platform::notify(&n.title, &n.body, None) { return; }
+    if platform::notify(&n.title, &n.body, &[], None) { return; }
     message(&n.title, &n.body);
 }
 
@@ -52,9 +52,9 @@ enum UserEvent {
     /// The blank ad's logo was clicked: show the menu at the cursor.
     #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
     ShowMenu,
-    /// The "new version" notification was clicked: ask to update (Windows).
+    /// The "new version" notification or its Update button was clicked: install (Windows).
     #[cfg_attr(not(windows), allow(dead_code))]
-    OfferUpdate,
+    InstallUpdate,
 }
 
 #[derive(Clone, Copy)]
@@ -279,13 +279,16 @@ impl App {
                 let first_notice = updater::notified().as_deref() != Some(f.version.as_str());
                 if interactive || first_notice {
                     updater::set_notified(&f.version);
-                    // found by the daily check (Windows): a notification; clicking it asks to update
+                    // Windows: a notification with Update / Later (found by the daily check or from the menu);
+                    // the notification itself or Update installs, no further question
                     #[cfg(windows)]
-                    if !interactive {
+                    {
                         let p = self.proxy.clone();
                         let n = notices::new_version(&f.version);
-                        let shown = platform::notify(&n.title, &n.body,
-                            Some(Box::new(move || { let _ = p.send_event(UserEvent::OfferUpdate); })));
+                        let shown = platform::notify(&n.title, &n.body, &[(notices::UPDATE, "update"), (notices::LATER, "later")],
+                            Some(Box::new(move |id| {
+                                if id.as_deref() != Some("later") { let _ = p.send_event(UserEvent::InstallUpdate); }
+                            })));
                         if shown { return false; }
                     }
                     return self.offer(f);
@@ -405,7 +408,7 @@ pub fn run(at_sign_in: bool) -> ! {
             #[cfg(any(windows, target_os = "macos"))]
             Event::UserEvent(UserEvent::ShowMenu) => { app.show_menu(); false }
             #[cfg(windows)]
-            Event::UserEvent(UserEvent::OfferUpdate) => app.pending.clone().is_some_and(|f| app.offer(f)),
+            Event::UserEvent(UserEvent::InstallUpdate) => app.pending.clone().is_some_and(|f| app.install(f)),
             Event::UserEvent(UserEvent::Quit) => true,
             Event::UserEvent(UserEvent::RouteCheck) => { app.route_check(); false }
             Event::UserEvent(UserEvent::TimerCheck) => { if updater::enabled() { app.check_updates(false); } false }
