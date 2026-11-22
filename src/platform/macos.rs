@@ -235,7 +235,7 @@ pub fn extract_verified_app(dmg: &Path, work: &Path, version: &str) -> Result<Pa
 }
 
 /// Swaps the app once the running copy (pid) has exited, putting the old one back if the swap fails, then
-/// opens whichever is in place. Arguments: pid, new app, installed app, work folder (removed at the end).
+/// stops any other copy still running from the old files and opens whichever is in place. Arguments: pid, new app, installed app, work folder (removed at the end).
 const REPLACE_SCRIPT: &str = r#"#!/bin/bash
 pid="$1"; src="$2"; dst="$3"; work="$4"
 for _ in $(seq 1 300); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
@@ -246,6 +246,8 @@ if /usr/bin/ditto "$src" "$staged" && /bin/mv "$dst" "$previous"; then
   if /bin/mv "$staged" "$dst"; then /bin/rm -rf "$previous"; else /bin/mv "$previous" "$dst"; fi
 fi
 /bin/rm -rf "$staged"
+# a copy still running from the old files (update started from the command line) would keep the old version
+/usr/bin/pkill -f "^$dst/Contents/MacOS/" 2>/dev/null && sleep 1
 /usr/bin/open "$dst"
 /bin/rm -rf "$work"
 "#;
