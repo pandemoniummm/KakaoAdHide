@@ -107,8 +107,19 @@ if [[ "$make_dmg" == 1 ]]; then
   mkdir -p "$stage"
   ditto "$app" "$stage/KakaoAdHide.app"
   ln -s /Applications "$stage/Applications"
+  [[ -f "$here/AppIcon.icns" ]] && cp "$here/AppIcon.icns" "$stage/.VolumeIcon.icns"
   rm -f "$dmg"
-  hdiutil create -quiet -volname "KakaoAdHide $version" -srcfolder "$stage" -fs HFS+ -format ULFO -ov "$dmg"
+  # Made writable first so the volume can be flagged to show its icon (.VolumeIcon.icns; the flag needs SetFile
+  # from the command line tools), then compressed.
+  rw="$tmp/rw.dmg"
+  hdiutil create -quiet -volname "KakaoAdHide $version" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$rw"
+  if [[ -f "$stage/.VolumeIcon.icns" ]] && command -v SetFile >/dev/null; then
+    mnt="$tmp/rw-mount"; mkdir -p "$mnt"
+    hdiutil attach -quiet -nobrowse -noautoopen -mountpoint "$mnt" "$rw"
+    SetFile -a C "$mnt"
+    hdiutil detach -quiet "$mnt"
+  fi
+  hdiutil convert -quiet "$rw" -format ULFO -o "$dmg"
   if [[ "$identity" == "-" ]]; then codesign --force --sign - "$dmg"
   else codesign --force --sign "$identity" --keychain "$keychain" --timestamp=none "$dmg"; fi
   echo "built $dmg"

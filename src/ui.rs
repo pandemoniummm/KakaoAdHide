@@ -474,10 +474,10 @@ fn icon_rgba(update: bool, inactive: bool) -> Vec<u8> {
                     let (fx, fy) = (x as f32 + (sx as f32 + 0.5) / 4.0, y as f32 + (sy as f32 + 0.5) / 4.0);
                     // the bubble (y 5..14): filled, an outline while not working
                     let d = sdf(fx, fy, 9.5);
-                    if if inactive { d.abs() <= 1.3 } else { d <= 0.0 } { cover[0] += 1.0 / 16.0; }
-                    // the slot (y 18..27): a dashed outline, dashes along the long edges, the round ends whole
-                    let dash = !(8.5..23.5).contains(&fx) || (fx - 8.5) % 5.0 < 3.0;
-                    if dash && sdf(fx, fy, 22.5).abs() <= 1.3 { cover[1] += 1.0 / 16.0; }
+                    if if inactive { (-2.6..=0.0).contains(&d) } else { d <= 0.0 } { cover[0] += 1.0 / 16.0; }
+                    // the slot (y 18..27): an outline drawn inside the edge, so it is as big as the bubble
+                    let d = sdf(fx, fy, 22.5);
+                    if (-2.6..=0.0).contains(&d) { cover[1] += 1.0 / 16.0; }
                     // the update dot, top right
                     if update && (fx - 27.0).hypot(fy - 5.0) <= 4.5 { cover[2] += 1.0 / 16.0; }
                 }
