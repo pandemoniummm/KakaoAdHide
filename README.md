@@ -47,7 +47,9 @@
 1. [Releases](../../releases)에서 `KakaoAdHide-windows.exe`를 받아 실행합니다.
    **"Windows의 PC 보호"** 창이 뜨면 **추가 정보 → 실행**을 누르세요. 코드 서명을 하지 않은 프로그램이라 뜨는 경고입니다.
 2. 설정 안내가 뜨면 **설정하기** → 인증서 설치 확인 창에서 **예** → 사용자 계정 컨트롤 창에서 **예**.
-3. 설치가 끝나면 KakaoAdHide가 카카오톡을 켭니다.
+3. 설치가 끝나면 KakaoAdHide가 카카오톡을 켭니다(이미 켜져 있으면 그대로).
+
+카카오톡 자체 자동 실행 설정은 건드리지 않습니다. 로그인할 때 카카오톡이 KakaoAdHide보다 먼저 켜지면, 몇 분 동안 내장 배너가 보였다가 빈 칸으로 바뀝니다.
 
 받은 파일이 Releases의 파일과 같은지는 함께 올린 `SHA256SUMS.txt`로 확인할 수 있습니다.
 
@@ -66,7 +68,6 @@ Get-FileHash .\KakaoAdHide-windows.exe -Algorithm SHA256
 |---|---|
 | `%LOCALAPPDATA%\KakaoAdHide\` | 프로그램 파일과 인증서 |
 | 시작 프로그램 폴더의 `KakaoAdHide.lnk` | 로그인할 때 실행 |
-| 카카오톡 자체 자동 실행 | 꺼 둡니다. KakaoAdHide가 먼저 켜진 뒤 카카오톡을 켭니다. 제거하면 원래대로 돌려놓습니다. |
 | 현재 사용자의 신뢰할 수 있는 루트 인증서 | `KakaoAdHide local ad server` (광고 주소 두 개 전용) |
 | `C:\Windows\System32\drivers\etc\hosts` | `# KakaoAdHide begin` ~ `# KakaoAdHide end` 사이의 두 줄 |
 | `HKCU\Software\KakaoAdHide` | 설정 |

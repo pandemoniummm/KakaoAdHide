@@ -190,6 +190,9 @@ pub fn is_installed_copy() -> bool {
 }
 
 pub fn install(quiet: bool) -> Result<(), String> {
+    // Over an existing install (a newer exe run by hand) this is an update: no "installed" message, the new copy
+    // says it was updated when it starts (ui: updater::note_version).
+    let existing = installed_exe().exists();
     stop_running();
     std::fs::create_dir_all(install_dir()).map_err(|e| e.to_string())?;
     // The stopped copy (1.0.0 or this version) may take a moment to exit and release its exe: retry for 15s.
@@ -205,7 +208,7 @@ pub fn install(quiet: bool) -> Result<(), String> {
     lnk.set_working_dir(Some(install_dir().display().to_string()));
     lnk.set_name(Some("KakaoTalk with the ad banner emptied".into()));
     lnk.create_lnk(startup_lnk()).map_err(|e| e.to_string())?;
-    disable_kakao_autostart();
+    release_kakao_autostart();
 
     let (k, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(UNINSTALL_KEY).map_err(|e| e.to_string())?;
     let exe = installed_exe().display().to_string();
@@ -221,8 +224,8 @@ pub fn install(quiet: bool) -> Result<(), String> {
     let size_kb = std::fs::metadata(installed_exe()).map(|m| (m.len() / 1024) as u32).unwrap_or(0);
     let _ = k.set_value("EstimatedSize", &size_kb);
 
-    if !quiet {
-        crate::ui::message("KakaoAdHide", "설치했습니다.\n\n이제 로그인할 때 KakaoAdHide가 카카오톡을 켜고 광고 칸을 비웁니다.\n(카카오톡 자체 자동 실행은 꺼 두었습니다)\n\n제거: 설정 > 앱 > 설치된 앱 > KakaoAdHide");
+    if !quiet && !existing {
+        crate::ui::message("KakaoAdHide", "설치했습니다.\n\n이제 로그인할 때 KakaoAdHide도 함께 켜져 카카오톡 광고 칸을 비웁니다.\n카카오톡 빈 칸 왼쪽(사이드바 아래)의 KakaoAdHide 버튼으로 메뉴를 열 수 있습니다.\n\n제거: 설정 > 앱 > 설치된 앱 > KakaoAdHide");
     }
     Command::new(installed_exe()).current_dir(install_dir()).spawn().map_err(|e| e.to_string())?;
     Ok(())
@@ -241,7 +244,7 @@ pub fn uninstall(quiet: bool) -> Result<(), String> {
     for log in ["server.log", "server.log.old"] { let _ = std::fs::remove_file(data_dir().join(log)); }
     if !quiet {
         let extra = match &undo { Ok(()) => String::new(), Err(e) => format!("\n\n일부를 정리하지 못했습니다:\n{e}") };
-        crate::ui::message("KakaoAdHide", &format!("제거했습니다.\n카카오톡 자동 실행은 원래대로 돌려 두었습니다.{extra}"));
+        crate::ui::message("KakaoAdHide", &format!("제거했습니다.{extra}"));
     }
     // The exe can't delete itself while running: cmd does it after we exit (rmdir without /s only removes an
     // empty folder, so nothing else that happens to be in there is touched). Uninstalling from the tray menu runs
@@ -262,17 +265,19 @@ pub fn uninstall(quiet: bool) -> Result<(), String> {
     undo
 }
 
-// ---------------------------------------------------------------- KakaoTalk's own auto start (as 1.0.0)
+// ---------------------------------------------------------------- KakaoTalk's own auto start
+//
+// Left as the user set it. Up to 2.1.0 KakaoAdHide turned it off (keeping the original in KakaoRun) and started
+// KakaoTalk itself, so KakaoTalk's first ad request found the server running. That isn't needed: when KakaoTalk
+// starts first, its request fails, it shows its built-in banner and asks again a few minutes later (measured:
+// about 3 minutes), by which time the server is up.
 
-pub fn disable_kakao_autostart() {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let Ok(run) = hkcu.open_subkey_with_flags(RUN_KEY, winreg::enums::KEY_READ | winreg::enums::KEY_WRITE) else { return };
-    let Ok(v) = run.get_value::<String, _>(KAKAO_RUN_VALUE) else { return };
-    if let Ok((app, _)) = hkcu.create_subkey(APP_KEY) {
-        if app.get_value::<String, _>("KakaoRun").is_err() { let _ = app.set_value("KakaoRun", &v); }   // the original, for uninstall
-        if let Some(exe) = exe_from_command_line(&v) { if Path::new(&exe).exists() { let _ = app.set_value("KakaoPath", &exe); } }
+/// Gives back KakaoTalk's auto start if an older version turned it off, and forgets the saved copy.
+pub fn release_kakao_autostart() {
+    restore_kakao_autostart();
+    if let Ok(app) = RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(APP_KEY, winreg::enums::KEY_WRITE) {
+        let _ = app.delete_value("KakaoRun");
     }
-    let _ = run.delete_value(KAKAO_RUN_VALUE);
 }
 
 fn restore_kakao_autostart() {
@@ -307,15 +312,12 @@ fn kakao_running() -> bool {
         .output().map(|o| String::from_utf8_lossy(&o.stdout).to_ascii_lowercase().contains("kakaotalk.exe")).unwrap_or(false)
 }
 
-/// Starts KakaoTalk (to the tray at sign-in) unless it already runs.
+/// When started by hand (after installing, or from the Start menu), also starts KakaoTalk unless it already runs.
+/// At sign-in KakaoTalk starts (or not) by its own setting.
 pub fn start_kakao(at_sign_in: bool) {
-    disable_kakao_autostart();   // KakaoTalk re-adds it after updates or when its setting is ticked again
-    if kakao_running() { return; }
-    if let Some(k) = find_kakao() {
-        let mut c = Command::new(k);
-        if at_sign_in { c.arg("-bystartup"); }
-        let _ = c.spawn();
-    }
+    release_kakao_autostart();
+    if at_sign_in || kakao_running() { return; }
+    if let Some(k) = find_kakao() { let _ = Command::new(k).spawn(); }
 }
 
 pub fn open_url(url: &str) {

@@ -231,7 +231,7 @@ pub fn run(at_sign_in: bool) -> ! {
         match event {
             Event::NewEvents(StartCause::Init) => {
                 platform::first_run();
-                let _ = updater::note_version();
+                let updated_from = updater::note_version();
                 app.start(true);
                 #[cfg(windows)]
                 platform::start_kakao(at_sign_in);
@@ -246,6 +246,10 @@ pub fn run(at_sign_in: bool) -> ! {
                 let builder = builder.with_icon(i);
                 app.tray = builder.build().ok();
                 app.refresh();
+                if let Some(prev) = &updated_from {
+                    message("업데이트했습니다", &format!("KakaoAdHide {VERSION}(으)로 업데이트되었습니다.
+(이전 버전 {prev})"));
+                }
                 #[cfg(windows)]
                 {
                     // the menu opened from the blank ad's logo

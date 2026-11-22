@@ -75,11 +75,15 @@ pub fn skip(v: &str) { platform::set("SkippedVersion", Some(v)) }
 pub fn notified() -> Option<String> { platform::get("NotifiedVersion") }
 pub fn set_notified(v: &str) { platform::set("NotifiedVersion", Some(v)) }
 
-/// The version this copy replaced, if it was just updated.
+/// The version this copy replaced, if it was just updated to a newer one (not on a first install or a downgrade).
 pub fn note_version() -> Option<String> {
     let last = platform::get("LastVersion");
     if last.as_deref() != Some(VERSION) { platform::set("LastVersion", Some(VERSION)); }
-    last.filter(|l| l != VERSION)
+    last.filter(|l| upgraded_from(l))
+}
+
+fn upgraded_from(last: &str) -> bool {
+    matches!((Version::parse(last), Version::parse(VERSION)), (Some(a), Some(b)) if a < b)
 }
 
 /// KakaoAdHide --verify-feed <feed.json> <package> : for the release workflow. The app being released checks its
@@ -92,5 +96,18 @@ pub fn verify_command(feed_path: &str, package: &str) -> i32 {
     match platform::verify_package(&f, Path::new(package)) {
         Ok(()) => 0,
         Err(e) => { eprintln!("not verified: {e}"); 3 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upgrade_notice_only_after_an_upgrade() {
+        assert!(upgraded_from("0.0.1"));
+        assert!(!upgraded_from(VERSION));
+        assert!(!upgraded_from("999.0.0"));   // downgrade
+        assert!(!upgraded_from("not a version"));
     }
 }
