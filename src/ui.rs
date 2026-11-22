@@ -40,6 +40,9 @@ enum UserEvent {
     RouteCheck,
     #[cfg_attr(not(windows), allow(dead_code))]
     Quit,
+    /// The blank ad's logo was clicked: show the menu at the cursor (Windows).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    ShowMenu,
 }
 
 #[derive(Clone, Copy)]
@@ -64,6 +67,9 @@ struct App {
     tray: Option<TrayIcon>,
     items: Option<Items>,
     proxy: EventLoopProxy<UserEvent>,
+    /// A hidden window to own the menu opened from the blank ad (Windows).
+    #[cfg(windows)]
+    menu_window: Option<tao::window::Window>,
 }
 
 impl App {
@@ -214,9 +220,13 @@ pub fn run(at_sign_in: bool) -> ! {
         });
     }
 
-    let mut app = App { status: Status::NotSetUp, pending: None, tray: None, items: None, proxy };
+    let mut app = App {
+        status: Status::NotSetUp, pending: None, tray: None, items: None, proxy,
+        #[cfg(windows)]
+        menu_window: None,
+    };
 
-    event_loop.run(move |event, _, control_flow| {
+    event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
             Event::NewEvents(StartCause::Init) => {
@@ -236,6 +246,26 @@ pub fn run(at_sign_in: bool) -> ! {
                 let builder = builder.with_icon(i);
                 app.tray = builder.build().ok();
                 app.refresh();
+                #[cfg(windows)]
+                {
+                    // the menu opened from the blank ad's logo
+                    app.menu_window = tao::window::WindowBuilder::new().with_visible(false).with_title("KakaoAdHide").build(_target).ok();
+                    if app.menu_window.is_some() {
+                        let p = app.proxy.clone();
+                        crate::server::set_menu_handler(menu_token(), move || { let _ = p.send_event(UserEvent::ShowMenu); });
+                    }
+                }
+            }
+            #[cfg(windows)]
+            Event::UserEvent(UserEvent::ShowMenu) => {
+                use tao::platform::windows::WindowExtWindows;
+                use tray_icon::menu::ContextMenu;
+                let Some(hwnd) = app.menu_window.as_ref().map(|w| w.hwnd()) else { return };
+                // the same menu as the tray's (one menu, so its items match what the event handler expects)
+                let menu = app.build_menu();
+                if let Some(t) = &app.tray { t.set_menu(Some(Box::new(menu.clone()))); }
+                platform::take_foreground(hwnd);
+                unsafe { menu.show_context_menu_for_hwnd(hwnd, None); }
             }
             Event::UserEvent(UserEvent::Quit) => *control_flow = ControlFlow::Exit,
             Event::UserEvent(UserEvent::RouteCheck) => {
@@ -317,6 +347,32 @@ pub fn run(at_sign_in: bool) -> ! {
             _ => {}
         }
     })
+}
+
+/// The token for the blank ad's menu button (see server::MENU_PATH). Made once and kept in the settings, so the
+/// blank ad KakaoTalk already holds (it asks again only every hour) keeps working after KakaoAdHide restarts or
+/// updates.
+#[cfg(windows)]
+fn menu_token() -> String {
+    if let Some(t) = platform::get("MenuToken").filter(|t| t.len() == 32 && t.bytes().all(|b| b.is_ascii_hexdigit())) {
+        return t;
+    }
+    let t = random_token();
+    platform::set("MenuToken", Some(&t));
+    t
+}
+
+/// 32 hex characters, random.
+#[cfg(windows)]
+fn random_token() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    (0..2).map(|i| {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u128(nanos);
+        h.write_u32(std::process::id() ^ i);
+        format!("{:016x}", h.finish())
+    }).collect()
 }
 
 /// The tray icon, drawn here (no image files): an ad banner with a slash; a dot when an update is waiting, an

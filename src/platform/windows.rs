@@ -134,6 +134,23 @@ pub fn single_instance() -> Option<Instance> {
 }
 
 /// Calls `on_quit` (from a background thread) when another copy signals Local\KakaoAdHide.Quit.
+/// Makes our hidden menu window the foreground window before a menu opens on it, so the menu takes the keyboard
+/// and closes when clicking elsewhere. The click came from KakaoTalk's window, and Windows only lets the
+/// foreground thread hand the foreground over, so attach to its input for the call.
+pub fn take_foreground(hwnd: isize) {
+    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow};
+    let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
+    unsafe {
+        let fg = GetForegroundWindow();
+        let fg_thread = if fg.is_null() { 0 } else { GetWindowThreadProcessId(fg, std::ptr::null_mut()) };
+        let me = GetCurrentThreadId();
+        let attached = fg_thread != 0 && fg_thread != me && AttachThreadInput(me, fg_thread, 1) != 0;
+        SetForegroundWindow(hwnd);
+        if attached { AttachThreadInput(me, fg_thread, 0); }
+    }
+}
+
 pub fn watch_quit_event(on_quit: impl FnOnce() + Send + 'static) {
     let name = wide(QUIT_EVENT);
     let ev = unsafe { CreateEventW(std::ptr::null(), 1, 0, name.as_ptr()) };

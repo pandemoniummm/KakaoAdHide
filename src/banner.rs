@@ -32,8 +32,19 @@ pub const LIGHT_SIDEBAR: &str = "#f5f5f5";
 pub const LIGHT_SIDEBAR: &str = "#ededed";
 pub const LIGHT_LIST: &str = "#ffffff";
 
-pub fn html() -> String {
+/// The blank ad. With `menu` (the server's menu token), it also shows the app's logo at the right; clicking it
+/// asks MENU_URL on this computer's KakaoAdHide, which opens its menu at the cursor. That one request is the only
+/// one the page can make, and only when clicked. Without `menu`: no logo, no requests at all.
+pub fn html(menu: Option<&str>) -> String {
     let (num, den) = SIDEBAR_PER_SLOT;
+    // The menu button sits in the sidebar part, under KakaoTalk's own sidebar icons, drawn like them: a grey
+    // outline icon (the tray icon's banner with a slash), sized and centred from the slot height like the sidebar.
+    let logo = match menu {
+        Some(token) => format!(
+            "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);height:var(--ic,19px);transform:translate(-50%,-50%);color:#6f6f6f;cursor:pointer}}#kah:hover{{color:#3c3c3c}}@media (prefers-color-scheme: dark){{#kah{{color:#9a9a9a}}#kah:hover{{color:#e0e0e0}}}}</style><svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"><title>KakaoAdHide</title><rect x=\"2.5\" y=\"6.5\" width=\"19\" height=\"11\" rx=\"2.5\"/><path d=\"M4 20 L20 4\"/></svg><script>document.documentElement.style.setProperty('--ic',(innerHeight*36/188)+'px');window.addEventListener('resize',function(){{document.documentElement.style.setProperty('--ic',(innerHeight*36/188)+'px')}});document.getElementById('kah').addEventListener('click',function(){{fetch('{MENU_URL}?t={token}',{{mode:'no-cors',cache:'no-store'}}).catch(function(){{}})}});document.addEventListener('contextmenu',function(e){{e.preventDefault()}});</script>"
+        ),
+        None => String::new(),
+    };
     let size_sidebar = format!(
         "<script>var sb=function(){{document.documentElement.style.setProperty('--sb',(innerHeight*{num}/{den})+'px')}};\
 sb();window.addEventListener('resize',sb);</script>"
@@ -45,7 +56,7 @@ html,body{{margin:0;height:100%;overflow:hidden;\
 background:linear-gradient(to right,{DARK_SIDEBAR} var(--sb,{SIDEBAR_WIDTH}px),{DARK_LIST} var(--sb,{SIDEBAR_WIDTH}px))}}\
 @media (prefers-color-scheme: light){{html,body{{\
 background:linear-gradient(to right,{LIGHT_SIDEBAR} var(--sb,{SIDEBAR_WIDTH}px),{LIGHT_LIST} var(--sb,{SIDEBAR_WIDTH}px))}}}}\
-</style></head><body>{size_sidebar}{WEBVIEW_READY}</body></html>"
+</style></head><body>{size_sidebar}{logo}{WEBVIEW_READY}</body></html>"
     )
 }
 
@@ -68,9 +79,12 @@ const AD_WIDTH: u32 = 390;
 /// banner, so they are filled in the shape the real server uses, but nothing ever leaves the computer.
 const LOCAL: &str = "https://serv.ds.kakao.com/ev/";
 
+/// The blank ad's logo asks this to open the app's menu (see server::MENU_PATH).
+pub const MENU_URL: &str = "https://serv.ds.kakao.com/kakaoadhide/menu";
+
 /// The /sdk/banner response, in the field set of a real ad (KakaoTalk for Windows 26.10 checks more than macOS).
-/// refreshInterval is long: there is nothing to refresh.
-pub fn response_json() -> String {
+/// refreshInterval is a day: there is nothing to refresh (KakaoTalk asks again by itself; this only sets when).
+pub fn response_json(menu: Option<&str>) -> String {
     let events: Vec<_> = ["viewable", "hide", "click", "rendered"]
         .iter()
         .map(|t| serde_json::json!({ "type": t, "url": format!("{LOCAL}{t}") }))
@@ -79,7 +93,7 @@ pub fn response_json() -> String {
         "status": "OK",
         "id": "00000000-0000-0000-0000-000000000000",
         "ads": [{
-            "content": html(),
+            "content": html(menu),
             "mimeType": "text/html",
             "width": AD_WIDTH,
             "height": 100,
@@ -103,7 +117,7 @@ pub fn response_json() -> String {
                 "replayIntervalKey": "AD_1",
                 "guaranteed": "N",
                 "replayInterval": "1200",
-                "refreshInterval": "3600",
+                "refreshInterval": "86400",
             },
             "allowFpc": "N",
         },
@@ -117,7 +131,7 @@ mod tests {
 
     #[test]
     fn response_shape() {
-        let v: serde_json::Value = serde_json::from_str(&response_json()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&response_json(None)).unwrap();
         assert_eq!(v["status"], "OK");
         let ad = &v["ads"][0];
         assert_eq!(ad["mimeType"], "text/html");
@@ -137,6 +151,21 @@ mod tests {
         assert!(html.contains("AdLoaded"));
         for banned in ["http:", "https:", "//", "src=", "fetch", "XMLHttpRequest", "WebSocket", "sendBeacon", "import"] {
             assert!(!html.contains(banned), "blank ad must not load anything: found {banned}");
+        }
+    }
+
+    #[test]
+    fn menu_logo_makes_only_the_local_menu_request() {
+        assert!(!html(None).contains("kah"));
+        let html = html(Some("0123abcd"));
+        assert_eq!(html.matches("<script").count(), 3);
+        // exactly one address, the menu on this computer, with the token
+        assert_eq!(html.matches("//").count(), 1);
+        assert_eq!(html.matches("fetch(").count(), 1);
+        assert!(html.contains(&format!("{MENU_URL}?t=0123abcd")));
+        assert!(MENU_URL.starts_with("https://serv.ds.kakao.com/") && MENU_URL.ends_with(crate::server::MENU_PATH));
+        for banned in ["http:", "src=", "XMLHttpRequest", "WebSocket", "sendBeacon", "import"] {
+            assert!(!html.contains(banned), "found {banned}");
         }
     }
 }

@@ -126,6 +126,7 @@ fn serve(mut tcp: TcpStream, cfg: Arc<ServerConfig>) -> std::io::Result<()> {
     // keep-alive: a few requests per connection at most
     for _ in 0..32 {
         let Some(req) = read_request(&mut reader)? else { return Ok(()) };
+        if req.path == MENU_PATH { open_menu(&req.query); }
         let (status, ctype, body) = respond(&req.method, &req.path);
         log(&format!("{peer} {sni} {} {} -> {status}", req.method, req.path));
         let head = format!(
@@ -140,7 +141,33 @@ fn serve(mut tcp: TcpStream, cfg: Arc<ServerConfig>) -> std::io::Result<()> {
     Ok(())
 }
 
-pub struct Request { pub method: String, pub path: String }
+pub struct Request { pub method: String, pub path: String, pub query: String }
+
+// Opening the app's menu from the blank ad: its logo asks MENU_PATH?t=<token> on this server when clicked, and
+// the app shows its menu at the cursor. The token is random per run and only ever sent inside the blank ad, so
+// another page that happens to reach this server can't pop the menu up. No handler (macOS for now): no logo.
+pub const MENU_PATH: &str = "/kakaoadhide/menu";
+type MenuHandler = Box<dyn Fn() + Send>;
+static MENU: Mutex<Option<(String, MenuHandler)>> = Mutex::new(None);
+
+pub fn set_menu_handler(token: String, f: impl Fn() + Send + 'static) {
+    if let Ok(mut g) = MENU.lock() { *g = Some((token, Box::new(f))); }
+}
+
+pub fn clear_menu_handler() {
+    if let Ok(mut g) = MENU.lock() { *g = None; }
+}
+
+/// The token for the blank ad's logo, when the app has a menu to open from it.
+pub fn menu_token() -> Option<String> {
+    MENU.lock().ok().and_then(|g| g.as_ref().map(|(t, _)| t.clone()))
+}
+
+fn open_menu(query: &str) {
+    let Ok(g) = MENU.lock() else { return };
+    let Some((token, f)) = g.as_ref() else { return };
+    if query.split('&').any(|kv| kv.strip_prefix("t=") == Some(token.as_str())) { f(); }
+}
 
 /// Reads one request head (and discards its body). None at end of stream.
 fn read_request(r: &mut impl BufRead) -> std::io::Result<Option<Request>> {
@@ -148,7 +175,8 @@ fn read_request(r: &mut impl BufRead) -> std::io::Result<Option<Request>> {
     if r.read_line(&mut line)? == 0 { return Ok(None); }
     let mut parts = line.split_whitespace();
     let (Some(method), Some(target)) = (parts.next(), parts.next()) else { return Ok(None) };
-    let (method, path) = (method.to_string(), target.split('?').next().unwrap_or("").to_string());
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let (method, path, query) = (method.to_string(), path.to_string(), query.to_string());
     let mut content_length = 0usize;
     for _ in 0..100 {
         let mut h = String::new();
@@ -160,12 +188,12 @@ fn read_request(r: &mut impl BufRead) -> std::io::Result<Option<Request>> {
         }
     }
     std::io::copy(&mut r.take(content_length as u64), &mut std::io::sink())?;
-    Ok(Some(Request { method, path }))
+    Ok(Some(Request { method, path, query }))
 }
 
 pub fn respond(method: &str, path: &str) -> (&'static str, &'static str, String) {
     if (method == "GET" || method == "HEAD") && path == "/sdk/banner" {
-        ("200 OK", "application/json", crate::banner::response_json())
+        ("200 OK", "application/json", crate::banner::response_json(menu_token().as_deref()))
     } else {
         ("204 No Content", "text/plain", String::new())
     }
@@ -175,6 +203,24 @@ pub fn respond(method: &str, path: &str) -> (&'static str, &'static str, String)
 mod tests {
     use super::*;
     use std::net::{Ipv4Addr, SocketAddr};
+
+    #[test]
+    fn menu_needs_the_token() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static OPENED: AtomicUsize = AtomicUsize::new(0);
+        set_menu_handler("abc123".into(), || { OPENED.fetch_add(1, Ordering::SeqCst); });
+        assert_eq!(menu_token().as_deref(), Some("abc123"));
+        open_menu("");
+        open_menu("t=wrong");
+        open_menu("t=abc1234");
+        assert_eq!(OPENED.load(Ordering::SeqCst), 0);
+        open_menu("x=1&t=abc123");
+        assert_eq!(OPENED.load(Ordering::SeqCst), 1);
+        clear_menu_handler();
+        open_menu("t=abc123");
+        assert_eq!(OPENED.load(Ordering::SeqCst), 1);
+        assert!(menu_token().is_none());
+    }
 
     #[test]
     fn routes() {
