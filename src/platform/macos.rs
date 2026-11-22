@@ -206,10 +206,7 @@ pub fn extract_verified_app(dmg: &Path, work: &Path, version: &str) -> Result<Pa
     let bad = |why: &str| VerifyError::BadPackage(why.to_string());
     let mount = work.join("mount");
     std::fs::create_dir_all(&mount).map_err(|e| bad(&e.to_string()))?;
-    let attached = Command::new("/usr/bin/hdiutil")
-        .args(["attach", "-nobrowse", "-readonly", "-noautoopen", "-noverify", "-mountpoint"]).arg(&mount).arg(dmg)
-        .stdout(std::process::Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
-    if !attached { return Err(bad("디스크 이미지를 열지 못했습니다")); }
+    if !attach_image(dmg, &mount) { return Err(bad("디스크 이미지를 열지 못했습니다")); }
     let result = (|| {
         let source = mount.join(APP_NAME);
         let meta = std::fs::symlink_metadata(&source).map_err(|_| bad("앱이 없습니다"))?;
@@ -228,10 +225,26 @@ pub fn extract_verified_app(dmg: &Path, work: &Path, version: &str) -> Result<Pa
         if !signed { return Err(bad("코드 서명이 맞지 않습니다")); }
         Ok(copy)
     })();
-    let detached = Command::new("/usr/bin/hdiutil").arg("detach").arg(&mount).stdout(std::process::Stdio::null()).status()
-        .map(|s| s.success()).unwrap_or(false);
-    if !detached { let _ = Command::new("/usr/bin/hdiutil").args(["detach", "-force"]).arg(&mount).status(); }
+    detach_image(&mount);
     result
+}
+
+fn quietly(cmd: &mut Command) -> bool {
+    cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// Mounts read-only and hidden from Finder. `diskutil image` where macOS has it (hdiutil attach is deprecated
+/// there), hdiutil on older systems.
+fn attach_image(dmg: &Path, mount: &Path) -> bool {
+    quietly(Command::new("/usr/sbin/diskutil").args(["image", "attach", "--readOnly", "--nobrowse", "--mountPoint"]).arg(mount).arg(dmg))
+        || quietly(Command::new("/usr/bin/hdiutil")
+            .args(["attach", "-nobrowse", "-readonly", "-noautoopen", "-noverify", "-mountpoint"]).arg(mount).arg(dmg))
+}
+
+fn detach_image(mount: &Path) {
+    let _ = quietly(Command::new("/usr/sbin/diskutil").arg("eject").arg(mount))
+        || quietly(Command::new("/usr/bin/hdiutil").arg("detach").arg(mount))
+        || quietly(Command::new("/usr/bin/hdiutil").args(["detach", "-force"]).arg(mount));
 }
 
 /// Swaps the app once the running copy (pid) has exited, putting the old one back if the swap fails, then

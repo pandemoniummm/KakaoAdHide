@@ -33,7 +33,10 @@ pub const LIGHT_SIDEBAR: &str = "#ededed";
 pub const LIGHT_LIST: &str = "#ffffff";
 
 /// The menu button's size over the slot height, like SIDEBAR_PER_SLOT (Windows: KakaoTalk's sidebar icons are
-/// 36 px in a 188 px slot at 150%).
+/// 36 px in a 188 px slot at 150%; macOS: 18 pt in the 100 pt slot, KakaoTalk for Mac 26.10).
+#[cfg(target_os = "macos")]
+pub const ICON_PER_SLOT: (u32, u32) = (18, 100);
+#[cfg(not(target_os = "macos"))]
 pub const ICON_PER_SLOT: (u32, u32) = (36, 188);
 
 /// The blank ad. With `menu` (the server's menu token) it also shows the menu button; clicking it asks MENU_URL on
@@ -98,7 +101,9 @@ pub const MENU_URL: &str = "https://serv.ds.kakao.com/kakaoadhide/menu";
 
 /// KakaoTalk's ad placements that get the blank ad: the bottom banner, which can't be removed, only filled.
 /// Every other placement (Windows: a popup by the tray on the first start of the day) gets no ad, so it doesn't
-/// open. macOS: not known yet, so every placement gets the blank ad as before.
+/// open. macOS: only the bottom banner (DAN-ECTpSP1g9fCcyreq on KakaoTalk for Mac 26.10) was ever requested, also
+/// on the first start of the day, so every placement keeps the blank ad: if KakaoTalk changed the banner's id, a
+/// list would turn the slot into KakaoTalk's fallback banner instead.
 #[cfg(windows)]
 pub const BOTTOM_BANNER_UNITS: &[&str] = &["DAN-FTsOAPU4yZ6oHLGy"];   // KakaoTalk for Windows 26.10
 

@@ -40,8 +40,8 @@ enum UserEvent {
     RouteCheck,
     #[cfg_attr(not(windows), allow(dead_code))]
     Quit,
-    /// The blank ad's logo was clicked: show the menu at the cursor (Windows).
-    #[cfg_attr(not(windows), allow(dead_code))]
+    /// The blank ad's logo was clicked: show the menu at the cursor.
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
     ShowMenu,
 }
 
@@ -67,8 +67,8 @@ struct App {
     tray: Option<TrayIcon>,
     items: Option<Items>,
     proxy: EventLoopProxy<UserEvent>,
-    /// A hidden window to own the menu opened from the blank ad (Windows).
-    #[cfg(windows)]
+    /// A hidden window to own the menu opened from the blank ad.
+    #[cfg(any(windows, target_os = "macos"))]
     menu_window: Option<tao::window::Window>,
 }
 
@@ -191,7 +191,9 @@ impl App {
         #[cfg(windows)]
         platform::start_kakao(at_sign_in);
         #[cfg(not(windows))]
-        let _ = (at_sign_in, target);
+        let _ = at_sign_in;
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let _ = target;
         let menu = self.build_menu();
         let i = icon(false, self.status != Status::Serving);
         let builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(format!("KakaoAdHide {VERSION}"));
@@ -204,7 +206,7 @@ impl App {
         if let Some(prev) = &updated_from {
             message("업데이트했습니다", &format!("KakaoAdHide {VERSION}(으)로 업데이트되었습니다.\n(이전 버전 {prev})"));
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             // the menu opened from the blank ad's button
             self.menu_window = tao::window::WindowBuilder::new().with_visible(false).with_title("KakaoAdHide").build(target).ok();
@@ -226,6 +228,18 @@ impl App {
         if let Some(t) = &self.tray { t.set_menu(Some(Box::new(menu.clone()))); }
         platform::take_foreground(hwnd);
         unsafe { menu.show_context_menu_for_hwnd(hwnd, None); }
+    }
+
+    /// The blank ad's button was clicked: the menu bar menu at the cursor.
+    #[cfg(target_os = "macos")]
+    fn show_menu(&mut self) {
+        use tao::platform::macos::WindowExtMacOS;
+        use tray_icon::menu::ContextMenu;
+        let Some(view) = self.menu_window.as_ref().map(WindowExtMacOS::ns_view) else { return };
+        let menu = self.build_menu();
+        if let Some(t) = &self.tray { t.set_menu(Some(Box::new(menu.clone()))); }
+        // SAFETY: the view belongs to menu_window, which lives as long as the app; None = at the mouse pointer
+        unsafe { menu.show_context_menu_for_nsview(view as *const _, None); }
     }
 
     fn route_check(&mut self) {
@@ -351,7 +365,7 @@ pub fn run(at_sign_in: bool) -> ! {
 
     let mut app = App {
         status: Status::NotSetUp, pending: None, tray: None, items: None, proxy,
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         menu_window: None,
     };
 
@@ -359,7 +373,7 @@ pub fn run(at_sign_in: bool) -> ! {
         *control_flow = ControlFlow::Wait;
         let exit = match event {
             Event::NewEvents(StartCause::Init) => { app.init(at_sign_in, target); false }
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             Event::UserEvent(UserEvent::ShowMenu) => { app.show_menu(); false }
             Event::UserEvent(UserEvent::Quit) => true,
             Event::UserEvent(UserEvent::RouteCheck) => { app.route_check(); false }
@@ -375,7 +389,7 @@ pub fn run(at_sign_in: bool) -> ! {
 /// The token for the blank ad's menu button (see server::MENU_PATH). Made once and kept in the settings, so the
 /// blank ad KakaoTalk already holds (it asks again only every hour) keeps working after KakaoAdHide restarts or
 /// updates.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn menu_token() -> String {
     // A token kept from 2.1.0-2.2.0 (hash based) stays: replacing it would break the button in the blank ad
     // KakaoTalk already holds until its next request (up to a day). It only guards popping the menu up.
@@ -388,7 +402,7 @@ fn menu_token() -> String {
 }
 
 /// 32 hex characters from the system's secure random source.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn random_token() -> String {
     use ring::rand::SecureRandom;
     let mut b = [0u8; 16];
