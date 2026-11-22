@@ -1,14 +1,11 @@
+# build output
 dist/
-obj/
+target/
 *.exe
-*.pdb
 
 # never commit signing keys
 *private*.xml
 *.key
 *.pfx
-
-# Rust build output
-target/
 *.p12
 *.password
