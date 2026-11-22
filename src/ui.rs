@@ -17,6 +17,14 @@ pub fn message(title: &str, text: &str) {
 
 pub fn confirm(title: &str, text: &str, ok: &str, cancel: &str) -> bool { confirm_label(title, text, ok, cancel) }
 
+/// Something to know, nothing to decide: a notification on Windows (a message box if it can't be shown), a
+/// message box elsewhere for now.
+pub fn notify(title: &str, text: &str) {
+    #[cfg(windows)]
+    if platform::notify(title, text, None) { return; }
+    message(title, text);
+}
+
 fn confirm_label(title: &str, text: &str, ok: &str, cancel: &str) -> bool {
     match rfd::MessageDialog::new().set_level(rfd::MessageLevel::Info).set_title(title).set_description(text)
         .set_buttons(rfd::MessageButtons::OkCancelCustom(ok.into(), cancel.into())).show()
@@ -43,6 +51,9 @@ enum UserEvent {
     /// The blank ad's logo was clicked: show the menu at the cursor.
     #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
     ShowMenu,
+    /// The "new version" notification was clicked: ask to update (Windows).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    OfferUpdate,
 }
 
 #[derive(Clone, Copy)]
@@ -186,6 +197,8 @@ impl App {
     /// First event: setup and server, KakaoTalk (Windows, started by hand), the tray icon, the blank ad's menu.
     fn init(&mut self, at_sign_in: bool, target: &EventLoopWindowTarget<UserEvent>) {
         platform::first_run();
+        #[cfg(windows)]
+        platform::register_notifications();
         let updated_from = updater::note_version();
         self.start(true);
         #[cfg(windows)]
@@ -204,7 +217,7 @@ impl App {
         self.tray = builder.build().ok();
         self.refresh();
         if let Some(prev) = &updated_from {
-            message("업데이트했습니다", &format!("KakaoAdHide {VERSION}(으)로 업데이트되었습니다.\n(이전 버전 {prev})"));
+            notify("업데이트 완료", &format!("KakaoAdHide {VERSION}\n이전 버전 {prev}"));
         }
         #[cfg(any(windows, target_os = "macos"))]
         {
@@ -261,13 +274,24 @@ impl App {
                 let first_notice = updater::notified().as_deref() != Some(f.version.as_str());
                 if interactive || first_notice {
                     updater::set_notified(&f.version);
+                    // found by the daily check (Windows): a notification; clicking it asks to update
+                    #[cfg(windows)]
+                    if !interactive {
+                        let p = self.proxy.clone();
+                        let shown = platform::notify(
+                            "새 버전",
+                            &format!("KakaoAdHide {}\n눌러서 업데이트", f.version),
+                            Some(Box::new(move || { let _ = p.send_event(UserEvent::OfferUpdate); })),
+                        );
+                        if shown { return false; }
+                    }
                     return self.offer(f);
                 }
             }
             Ok(Check::UpToDate) => {
                 self.pending = None;
                 self.refresh();
-                if interactive { message("최신 버전입니다", &format!("KakaoAdHide {VERSION}")); }
+                if interactive { notify("최신 버전", &format!("KakaoAdHide {VERSION}")); }
             }
             Err(e) => if interactive { message("업데이트를 확인하지 못했습니다", &e) },
         }
@@ -375,6 +399,8 @@ pub fn run(at_sign_in: bool) -> ! {
             Event::NewEvents(StartCause::Init) => { app.init(at_sign_in, target); false }
             #[cfg(any(windows, target_os = "macos"))]
             Event::UserEvent(UserEvent::ShowMenu) => { app.show_menu(); false }
+            #[cfg(windows)]
+            Event::UserEvent(UserEvent::OfferUpdate) => app.pending.clone().is_some_and(|f| app.offer(f)),
             Event::UserEvent(UserEvent::Quit) => true,
             Event::UserEvent(UserEvent::RouteCheck) => { app.route_check(); false }
             Event::UserEvent(UserEvent::TimerCheck) => { if updater::enabled() { app.check_updates(false); } false }

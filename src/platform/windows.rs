@@ -31,6 +31,9 @@ const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const APP_KEY: &str = r"Software\KakaoAdHide";
 const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\KakaoAdHide";
 const KAKAO_RUN_VALUE: &str = "KakaoTalk";
+/// The AppUserModelID notifications are shown under; registered so they read "KakaoAdHide" (removed on uninstall).
+const NOTIFY_APP_ID: &str = "pandemoniummm.KakaoAdHide";
+const NOTIFY_APP_KEY: &str = r"Software\Classes\AppUserModelId\pandemoniummm.KakaoAdHide";
 
 fn wide(s: &str) -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() }
 fn env_dir(var: &str) -> PathBuf { PathBuf::from(std::env::var_os(var).unwrap_or_default()) }
@@ -209,6 +212,7 @@ pub fn install(quiet: bool) -> Result<(), String> {
     lnk.set_name(Some("KakaoTalk with the ad banner emptied".into()));
     lnk.create_lnk(startup_lnk()).map_err(|e| e.to_string())?;
     release_kakao_autostart();
+    register_notifications();
 
     let (k, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(UNINSTALL_KEY).map_err(|e| e.to_string())?;
     let exe = installed_exe().display().to_string();
@@ -225,7 +229,7 @@ pub fn install(quiet: bool) -> Result<(), String> {
     let _ = k.set_value("EstimatedSize", &size_kb);
 
     if !quiet && !existing {
-        crate::ui::message("KakaoAdHide", "설치했습니다.\n\n이제 로그인할 때 KakaoAdHide도 함께 켜져 카카오톡 광고 칸을 비웁니다.\n카카오톡 빈 칸 왼쪽(사이드바 아래)의 KakaoAdHide 버튼으로 메뉴를 열 수 있습니다.\n\n제거: 설정 > 앱 > 설치된 앱 > KakaoAdHide");
+        crate::ui::notify("설치 완료", "로그인하면 함께 켜집니다\n메뉴: 카카오톡 빈 칸 왼쪽 버튼");
     }
     Command::new(installed_exe()).current_dir(install_dir()).spawn().map_err(|e| e.to_string())?;
     Ok(())
@@ -239,6 +243,7 @@ pub fn uninstall(quiet: bool) -> Result<(), String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let _ = hkcu.delete_subkey_all(UNINSTALL_KEY);
     let _ = hkcu.delete_subkey_all(APP_KEY);
+    let _ = hkcu.delete_subkey_all(NOTIFY_APP_KEY);
     let _ = std::fs::remove_dir_all(update_temp_dir());
     let _ = std::fs::remove_dir_all(setup::cert_dir());
     for log in ["server.log", "server.log.old"] { let _ = std::fs::remove_file(data_dir().join(log)); }
@@ -334,6 +339,28 @@ pub fn start_kakao(at_sign_in: bool) {
     release_kakao_autostart();
     if at_sign_in || kakao_running() { return; }
     if let Some(k) = find_kakao() { let _ = Command::new(k).spawn(); }
+}
+
+// ---------------------------------------------------------------- notifications (toasts)
+
+/// Registers the notification sender name (an unpackaged app's AppUserModelID needs a DisplayName to show as
+/// "KakaoAdHide" rather than an id). Cheap, so it's also done at each start (older installs, repaired settings).
+pub fn register_notifications() {
+    if let Ok((k, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(NOTIFY_APP_KEY) {
+        let _ = k.set_value("DisplayName", &"KakaoAdHide".to_string());
+    }
+}
+
+/// Shows a Windows notification: the title, then `text` as up to two lines (split at the first newline, so a
+/// sentence isn't broken mid-way). `on_click` runs (on a system thread) when it's clicked while this app runs.
+/// False if it couldn't be shown (notifications off for the app still count as shown: Windows keeps them quiet).
+pub fn notify(title: &str, text: &str, on_click: Option<Box<dyn Fn() + Send>>) -> bool {
+    use tauri_winrt_notification::Toast;
+    let (line1, line2) = text.split_once('\n').unwrap_or((text, ""));
+    let mut t = Toast::new(NOTIFY_APP_ID).title(title).text1(line1);
+    if !line2.is_empty() { t = t.text2(line2); }
+    if let Some(f) = on_click { t = t.on_activated(move |_| { f(); Ok(()) }); }
+    t.show().is_ok()
 }
 
 pub fn open_url(url: &str) {
