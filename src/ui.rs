@@ -227,6 +227,8 @@ impl App {
                 let p = self.proxy.clone();
                 crate::server::set_menu_handler(menu_token(), move || { let _ = p.send_event(UserEvent::ShowMenu); });
             }
+            #[cfg(windows)]
+            platform::watch_kakao_active();
         }
     }
 
@@ -239,8 +241,12 @@ impl App {
         // the same menu as the tray's (one menu, so its items match what the event handler expects)
         let menu = self.build_menu();
         if let Some(t) = &self.tray { t.set_menu(Some(Box::new(menu.clone()))); }
-        platform::take_foreground(hwnd);
+        // KakaoTalk dims its icons while the menu is open: the button too (not left to the foreground event, which
+        // a hidden window doesn't reliably get), then whatever is in front once it closes
+        crate::server::set_kakao_active(false);
+        let prev = platform::take_foreground(hwnd);
         unsafe { menu.show_context_menu_for_hwnd(hwnd, None); }
+        platform::give_back_foreground(hwnd, prev);
     }
 
     /// The blank ad's button was clicked: the menu bar menu at the cursor.

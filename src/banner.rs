@@ -32,6 +32,17 @@ pub const LIGHT_SIDEBAR: &str = "#f5f5f5";
 pub const LIGHT_SIDEBAR: &str = "#ededed";
 pub const LIGHT_LIST: &str = "#ffffff";
 
+/// The menu button's grey while KakaoTalk isn't the active app (its sidebar icons dim then), light and dark.
+pub const INACTIVE_LIGHT: &str = "#aeaeae";   // KakaoTalk for Windows, measured
+/// KakaoTalk repaints its icons a moment after it becomes active (Windows: about 24 ms after the click, the
+/// button about 10 ms without waiting, measured on 360 Hz and 60 Hz screens): the button waits the difference, so
+/// both land in the same frame even at 60 Hz. Dimming needs no wait.
+#[cfg(target_os = "macos")]
+const ACTIVE_DELAY_MS: u32 = 0;
+#[cfg(not(target_os = "macos"))]
+const ACTIVE_DELAY_MS: u32 = 14;
+pub const INACTIVE_DARK: &str = "#757575";   // macOS dark, measured (KakaoTalk 26.10)
+
 /// The menu button's size over the slot height, like SIDEBAR_PER_SLOT (Windows: KakaoTalk's sidebar icons are
 /// 36 px in a 188 px slot at 150%; macOS: 18 pt in the 100 pt slot, KakaoTalk for Mac 26.10).
 #[cfg(target_os = "macos")]
@@ -45,7 +56,20 @@ pub const ICON_PER_SLOT: (u32, u32) = (36, 188);
 #[cfg(target_os = "macos")]
 const HOVER_PAD: f64 = 0.4;
 #[cfg(not(target_os = "macos"))]
-const HOVER_PAD: f64 = 0.15;
+const HOVER_PAD: f64 = 0.35;   // Windows: about 61 px around a 36 px icon box, as KakaoTalk's (measured at 100%)
+/// The highlight's darkening in light mode (KakaoTalk for Windows: #ededed to #e6e6e6).
+#[cfg(target_os = "macos")]
+const HOVER_LIGHT: f64 = 0.06;
+#[cfg(not(target_os = "macos"))]
+const HOVER_LIGHT: f64 = 0.03;
+
+/// The bubble (the button's top shape) and the line width. macOS: filled, like the menu bar icon. KakaoTalk for
+/// Windows draws its sidebar icons in outlines, next to which a filled shape looks heavy: outlined there too.
+#[cfg(target_os = "macos")]
+const TOP_RECT: &str = r#"<rect x="2" y="3" width="20" height="8.5" rx="4.25" fill="currentColor" stroke="none"/>"#;
+#[cfg(not(target_os = "macos"))]
+const TOP_RECT: &str = r#"<rect x="3" y="4" width="18" height="6.5" rx="3.25"/>"#;
+const STROKE: f64 = 2.0;   // Windows: 3 px at 100%, as KakaoTalk's icon lines (2.7 to 3.2 px measured)
 
 /// The blank ad. With `menu` (the server's menu token) it also shows the menu button; clicking it asks MENU_URL on
 /// this computer's KakaoAdHide, which opens its menu at the cursor. That one request is the only one the page can
@@ -59,19 +83,19 @@ s.setProperty('--sb',(innerHeight*{sn}/{sd})+'px');s.setProperty('--ic',(innerHe
 size();window.addEventListener('resize',size);</script>"
     );
     // The button sits in the sidebar part, under KakaoTalk's own sidebar icons, drawn like them: the app icon as
-    // a grey line icon (assets/icon-line.svg: a filled chat bubble, and the emptied ad slot outlined below it).
+    // a grey line icon (assets/icon-line.svg: a chat bubble, and the emptied ad slot outlined below it).
     let button = match menu {
         Some(token) => format!(
             "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);\
-height:var(--ic,19px);padding:calc(var(--ic,19px)*{HOVER_PAD});border-radius:50%;\
-transform:translate(-50%,-50%);color:#6f6f6f;cursor:default}}#kah:hover{{background:rgba(0,0,0,.06)}}\
-@media (prefers-color-scheme: dark){{#kah{{color:#b9b9b9}}#kah:hover{{background:rgba(255,255,255,.05)}}}}</style>\
-<svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" \
-stroke-linecap=\"round\"><title>KakaoAdHide</title><rect x=\"2\" y=\"3\" width=\"20\" height=\"8.5\" rx=\"4.25\" fill=\"currentColor\" stroke=\"none\"/>\
+height:var(--ic,19px);padding:calc(var(--ic,19px)*{HOVER_PAD});border-radius:50%;transform:translate(-50%,-50%);color:#6f6f6f;cursor:default}}#kah:hover{{background:rgba(0,0,0,{HOVER_LIGHT})}}@media (prefers-color-scheme: dark){{#kah{{color:#b9b9b9}}#kah:hover{{background:rgba(255,255,255,.05)}}}}.off #kah{{color:{INACTIVE_LIGHT}}}@media (prefers-color-scheme: dark){{.off #kah{{color:{INACTIVE_DARK}}}}}</style><svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"{STROKE}\" \
+stroke-linecap=\"round\"><title>KakaoAdHide</title>{TOP_RECT}\
 <rect x=\"3\" y=\"13.5\" width=\"18\" height=\"6.5\" rx=\"3.25\"/></svg>\
 <script>document.getElementById('kah').addEventListener('click',function(){{\
 fetch('{MENU_URL}?t={token}',{{mode:'no-cors',cache:'no-store'}}).catch(function(){{}})}});\
-document.addEventListener('contextmenu',function(e){{e.preventDefault()}});</script>"
+document.addEventListener('contextmenu',function(e){{e.preventDefault()}});\
+var kt;try{{new EventSource('{STATE_URL}?t={token}').onmessage=function(e){{clearTimeout(kt);\
+var off=e.data==='inactive',c=document.documentElement.classList;\
+if(off)c.add('off');else kt=setTimeout(function(){{c.remove('off')}},{ACTIVE_DELAY_MS})}}}}catch(e){{}}</script>"
         ),
         None => String::new(),
     };
@@ -107,6 +131,8 @@ const LOCAL: &str = "https://serv.ds.kakao.com/ev/";
 
 /// The blank ad's logo asks this to open the app's menu (see server::MENU_PATH).
 pub const MENU_URL: &str = "https://serv.ds.kakao.com/kakaoadhide/menu";
+/// The blank ad listens here for KakaoTalk's window state, to dim the button with KakaoTalk's icons.
+pub const STATE_URL: &str = "https://serv.ds.kakao.com/kakaoadhide/state";
 
 /// KakaoTalk's ad placements that get the blank ad: the bottom banner, which can't be removed, only filled.
 /// Every other placement (Windows: a popup by the tray on the first start of the day) gets no ad, so it doesn't
@@ -206,11 +232,13 @@ mod tests {
         assert!(!html(None).contains("kah"));
         let html = html(Some("0123abcd"));
         assert_eq!(html.matches("<script").count(), 3);
-        // exactly one address, the menu on this computer, with the token
-        assert_eq!(html.matches("//").count(), 1);
+        // exactly two addresses, both on this computer with the token: the menu (on click) and the state stream
+        assert_eq!(html.matches("//").count(), 2);
         assert_eq!(html.matches("fetch(").count(), 1);
-        assert!(html.contains(&format!("{MENU_URL}?t=0123abcd")));
+        assert_eq!(html.matches("EventSource(").count(), 1);
+        assert!(html.contains(&format!("{MENU_URL}?t=0123abcd")) && html.contains(&format!("{STATE_URL}?t=0123abcd")));
         assert!(MENU_URL.starts_with("https://serv.ds.kakao.com/") && MENU_URL.ends_with(crate::server::MENU_PATH));
+        assert!(STATE_URL.starts_with("https://serv.ds.kakao.com/") && STATE_URL.ends_with(crate::server::STATE_PATH));
         for banned in ["http:", "src=", "XMLHttpRequest", "WebSocket", "sendBeacon", "import"] {
             assert!(!html.contains(banned), "found {banned}");
         }

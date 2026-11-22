@@ -12,7 +12,8 @@ use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 pub fn tls_config(cert_pem: &Path, key_pem: &Path) -> Result<Arc<ServerConfig>, String> {
@@ -130,6 +131,10 @@ fn serve(mut tcp: TcpStream, cfg: Arc<ServerConfig>) -> std::io::Result<()> {
     for _ in 0..32 {
         let Some(req) = read_request(&mut reader)? else { return Ok(()) };
         if req.path == MENU_PATH { open_menu(&req.query); }
+        if req.path == STATE_PATH {
+            log(&format!("{peer} {sni} {} {}", req.method, req.path));
+            return stream_state(reader.get_mut(), &req);
+        }
         let (status, ctype, body) = respond(&req.method, &req.path, &req.query);
         // the ad placement (a fixed id per placement, nothing about the user) shows which slot asked
         let unit = if req.path == "/sdk/banner" { ad_unit(&req.query).map(|u| format!(" [{u}]")).unwrap_or_default() } else { String::new() };
@@ -146,7 +151,57 @@ fn serve(mut tcp: TcpStream, cfg: Arc<ServerConfig>) -> std::io::Result<()> {
     Ok(())
 }
 
-pub struct Request { pub method: String, pub path: String, pub query: String }
+/// `origin`: the Origin header, for the state stream's CORS answer.
+pub struct Request { pub method: String, pub path: String, pub query: String, pub origin: String }
+
+// KakaoTalk's window state for the blank ad's menu button, which dims with KakaoTalk's own sidebar icons while
+// KakaoTalk isn't the active app. The web view can't tell (it never has the focus), so the app follows the
+// foreground window and the blank ad keeps one event stream open here (STATE_PATH?t=<menu token>), sent
+// "active" or "inactive" whenever it changes. Nothing is polled, and it's still only this computer.
+pub const STATE_PATH: &str = "/kakaoadhide/state";
+static STATE: Mutex<(bool, u64)> = Mutex::new((true, 0));   // (KakaoTalk active, change count)
+static STATE_CHANGED: Condvar = Condvar::new();
+static STREAMS: AtomicUsize = AtomicUsize::new(0);
+const MAX_STREAMS: usize = 8;
+
+/// Called by the platform code when KakaoTalk becomes or stops being the active app.
+pub fn set_kakao_active(active: bool) {
+    let Ok(mut s) = STATE.lock() else { return };
+    if s.0 != active { *s = (active, s.1 + 1); STATE_CHANGED.notify_all(); }
+}
+
+fn token_ok(query: &str) -> bool {
+    menu_token().is_some_and(|t| query.split('&').any(|kv| kv.strip_prefix("t=") == Some(t.as_str())))
+}
+
+/// The state as server-sent events: the current state now, then each change, and a comment every 20 s to keep
+/// the connection open. Ends when the page goes away (a write fails).
+fn stream_state(w: &mut impl Write, req: &Request) -> std::io::Result<()> {
+    if !token_ok(&req.query) || STREAMS.load(Ordering::SeqCst) >= MAX_STREAMS {
+        w.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?;
+        return w.flush();
+    }
+    STREAMS.fetch_add(1, Ordering::SeqCst);
+    struct Done;
+    impl Drop for Done { fn drop(&mut self) { STREAMS.fetch_sub(1, Ordering::SeqCst); } }
+    let _done = Done;
+    // the blank ad runs on KakaoTalk's ad page origin; the token, not the origin, is what's checked
+    let origin = if req.origin.is_empty() { "*".to_string() } else { req.origin.clone() };
+    write!(w, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\n\
+Access-Control-Allow-Origin: {origin}\r\nConnection: close\r\n\r\n")?;
+    let (mut active, mut seen) = STATE.lock().map(|s| *s).unwrap_or((true, 0));
+    loop {
+        write!(w, "data: {}\n\n", if active { "active" } else { "inactive" })?;
+        w.flush()?;
+        loop {
+            let Ok(g) = STATE.lock() else { return Ok(()) };
+            let Ok((g, timeout)) = STATE_CHANGED.wait_timeout_while(g, Duration::from_secs(20), |s| s.1 == seen) else { return Ok(()) };
+            if timeout.timed_out() { drop(g); w.write_all(b": ping\n\n")?; w.flush()?; continue; }
+            (active, seen) = *g;
+            break;
+        }
+    }
+}
 
 // Opening the app's menu from the blank ad: its logo asks MENU_PATH?t=<token> on this server when clicked, and
 // the app shows its menu at the cursor. The token is random per run and only ever sent inside the blank ad, so
@@ -183,6 +238,7 @@ fn read_request(r: &mut impl BufRead) -> std::io::Result<Option<Request>> {
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     let (method, path, query) = (method.to_string(), path.to_string(), query.to_string());
     let mut content_length = 0usize;
+    let mut origin = String::new();
     for _ in 0..100 {
         let mut h = String::new();
         if r.read_line(&mut h)? == 0 { return Ok(None); }
@@ -190,10 +246,11 @@ fn read_request(r: &mut impl BufRead) -> std::io::Result<Option<Request>> {
         if h.is_empty() { break; }
         if let Some((k, v)) = h.split_once(':') {
             if k.eq_ignore_ascii_case("content-length") { content_length = v.trim().parse().unwrap_or(0).min(1 << 20); }
+            if k.eq_ignore_ascii_case("origin") { origin = v.trim().chars().filter(|c| !c.is_control()).take(200).collect(); }
         }
     }
     std::io::copy(&mut r.take(content_length as u64), &mut std::io::sink())?;
-    Ok(Some(Request { method, path, query }))
+    Ok(Some(Request { method, path, query, origin }))
 }
 
 /// The ad placement a /sdk/banner request is for (its `id` parameter, e.g. DAN-FTsOAPU4yZ6oHLGy).
@@ -219,8 +276,49 @@ mod tests {
     use super::*;
     use std::net::{Ipv4Addr, SocketAddr};
 
+    /// The menu token and KakaoTalk state are process-wide: tests that set them take turns.
+    static GLOBALS: Mutex<()> = Mutex::new(());
+
+    /// Collects what the state stream writes; fails (ending the stream) after `limit` events.
+    struct Sink { out: Arc<Mutex<String>>, limit: usize }
+    impl Write for Sink {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            let mut o = self.out.lock().unwrap();
+            // fail at the start of an event, not in the middle of one
+            if b.starts_with(b"data: ") && o.matches("data: ").count() >= self.limit { return Err(std::io::Error::other("closed")); }
+            o.push_str(&String::from_utf8_lossy(b));
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+
+    #[test]
+    fn state_stream() {
+        let _turn = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
+        set_menu_handler("tok42".into(), || {});
+        set_kakao_active(true);
+        let req = |q: &str| Request { method: "GET".into(), path: STATE_PATH.into(), query: q.into(), origin: "https://t1.kakaocdn.net".into() };
+        // no token: refused
+        let out = Arc::new(Mutex::new(String::new()));
+        stream_state(&mut Sink { out: out.clone(), limit: 9 }, &req("t=nope")).unwrap();
+        assert!(out.lock().unwrap().starts_with("HTTP/1.1 403"));
+        // the current state at once, then the change
+        let out = Arc::new(Mutex::new(String::new()));
+        let o2 = out.clone();
+        let t = std::thread::spawn(move || { let _ = stream_state(&mut Sink { out: o2, limit: 2 }, &req("t=tok42")); });
+        while !out.lock().unwrap().contains("data: active") { std::thread::sleep(Duration::from_millis(5)); }
+        set_kakao_active(false);
+        while !out.lock().unwrap().contains("data: inactive") { std::thread::sleep(Duration::from_millis(5)); }
+        set_kakao_active(true);   // the third event fails the write and ends the stream
+        t.join().unwrap();
+        let text = out.lock().unwrap().clone();
+        assert!(text.contains("text/event-stream") && text.contains("Access-Control-Allow-Origin: https://t1.kakaocdn.net"));
+        clear_menu_handler();
+    }
+
     #[test]
     fn menu_needs_the_token() {
+        let _turn = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
         use std::sync::atomic::{AtomicUsize, Ordering};
         static OPENED: AtomicUsize = AtomicUsize::new(0);
         set_menu_handler("abc123".into(), || { OPENED.fetch_add(1, Ordering::SeqCst); });

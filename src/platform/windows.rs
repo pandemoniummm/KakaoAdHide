@@ -140,7 +140,8 @@ pub fn single_instance() -> Option<Instance> {
 /// Makes our hidden menu window the foreground window before a menu opens on it, so the menu takes the keyboard
 /// and closes when clicking elsewhere. The click came from KakaoTalk's window, and Windows only lets the
 /// foreground thread hand the foreground over, so attach to its input for the call.
-pub fn take_foreground(hwnd: isize) {
+/// Returns the window that was in front, for `give_back_foreground`.
+pub fn take_foreground(hwnd: isize) -> isize {
     use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow};
     let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
@@ -151,7 +152,20 @@ pub fn take_foreground(hwnd: isize) {
         let attached = fg_thread != 0 && fg_thread != me && AttachThreadInput(me, fg_thread, 1) != 0;
         SetForegroundWindow(hwnd);
         if attached { AttachThreadInput(me, fg_thread, 0); }
+        fg as isize
     }
+}
+
+/// After the menu: if KakaoAdHide's (hidden) window is still in front, the window that was before gets it back,
+/// so KakaoTalk is active again as it was. Then the button's state follows what's in front, now and once more a
+/// moment later (closing a menu by clicking another window activates that window just after).
+pub fn give_back_foreground(mine: isize, prev: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
+    unsafe {
+        if prev != 0 && GetForegroundWindow() as isize == mine { SetForegroundWindow(prev as _); }
+    }
+    recheck_kakao_active();
+    std::thread::spawn(|| { std::thread::sleep(std::time::Duration::from_millis(300)); recheck_kakao_active(); });
 }
 
 pub fn watch_quit_event(on_quit: impl FnOnce() + Send + 'static) {
@@ -310,6 +324,48 @@ pub fn exe_from_command_line(cmd: &str) -> Option<String> {
     if let Some(rest) = cmd.strip_prefix('"') { return rest.find('"').filter(|&e| e > 0).map(|e| rest[..e].to_string()); }
     let i = cmd.to_ascii_lowercase().find(".exe")?;
     (i > 0).then(|| cmd[..i + 4].to_string())
+}
+
+// ---------------------------------------------------------------- KakaoTalk active or not (the menu button dims)
+
+/// Follows the foreground window (a system event, nothing polled) and tells the server whether KakaoTalk is the
+/// active app. Call on the UI thread: the hook's callback runs from its message loop. KakaoAdHide's own menu
+/// counts as another app: KakaoTalk dims its icons while the menu is open, so the button dims with them.
+pub fn watch_kakao_active() {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, EVENT_SYSTEM_FOREGROUND, WINEVENT_OUTOFCONTEXT};
+    unsafe extern "system" fn on_foreground(_: HWINEVENTHOOK, _: u32, hwnd: HWND, _: i32, _: i32, _: u32, _: u32) {
+        note_foreground(hwnd);
+    }
+    unsafe {
+        SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, std::ptr::null_mut(), Some(on_foreground), 0, 0, WINEVENT_OUTOFCONTEXT);
+        note_foreground(GetForegroundWindow());
+    }
+}
+
+/// Checks the foreground window again now (after KakaoAdHide's own menu closes).
+pub fn recheck_kakao_active() {
+    note_foreground(unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() });
+}
+
+fn note_foreground(hwnd: windows_sys::Win32::Foundation::HWND) {
+    if hwnd.is_null() { return; }
+    crate::server::set_kakao_active(is_kakao_main(hwnd));
+}
+
+/// Whether `hwnd` is KakaoTalk's main window itself (class EVA_Window_Dblclk, titled "카카오톡"). Not its other
+/// windows: KakaoTalk's sidebar dims while a chat room is in front, and also while the ad slot (a window of its
+/// own, owned by the main one) has the focus, after a click on it.
+fn is_kakao_main(hwnd: windows_sys::Win32::Foundation::HWND) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, GetClassNameW, GetWindowTextW, GA_ROOT};
+    let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+    let root = if root.is_null() { hwnd } else { root };
+    let mut buf = [0u16; 64];
+    let n = unsafe { GetClassNameW(root, buf.as_mut_ptr(), buf.len() as i32) };
+    if n <= 0 || String::from_utf16_lossy(&buf[..n as usize]) != "EVA_Window_Dblclk" { return false; }
+    let n = unsafe { GetWindowTextW(root, buf.as_mut_ptr(), buf.len() as i32) };
+    n > 0 && String::from_utf16_lossy(&buf[..n as usize]) == "카카오톡"
 }
 
 /// Whether a KakaoTalk.exe process runs (a process snapshot, no external program).
