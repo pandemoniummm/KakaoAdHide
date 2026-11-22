@@ -6,8 +6,8 @@
 //! width, the list colour for the rest. KakaoTalk draws it inside its window, so it moves and resizes with the
 //! window like any other part of it. No tracking events, and the real ad servers are never contacted.
 
-/// KakaoTalk's sidebar width and background greys. macOS: measured on KakaoTalk for Mac 26.10 (dark; the light
-/// values are its white list and light grey sidebar). Windows: measured on KakaoTalk 26.10 for Windows (light;
+/// KakaoTalk's sidebar width and background greys. macOS: measured on KakaoTalk for Mac 26.10, dark and light
+/// (light: #f5f5f5 here shows as the sidebar's on-screen #f7f7f7 after the web view's color conversion). Windows: measured on KakaoTalk 26.10 for Windows (light;
 /// dark uses the macOS greys until measured).
 #[cfg(target_os = "macos")]
 pub const SIDEBAR_WIDTH: u32 = 78;
@@ -16,7 +16,7 @@ pub const SIDEBAR_WIDTH: u32 = 81;
 pub const DARK_SIDEBAR: &str = "#2d2d2d";
 pub const DARK_LIST: &str = "#222222";
 #[cfg(target_os = "macos")]
-pub const LIGHT_SIDEBAR: &str = "#f2f2f2";
+pub const LIGHT_SIDEBAR: &str = "#f5f5f5";
 #[cfg(not(target_os = "macos"))]
 pub const LIGHT_SIDEBAR: &str = "#ededed";
 pub const LIGHT_LIST: &str = "#ffffff";
