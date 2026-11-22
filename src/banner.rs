@@ -9,10 +9,21 @@
 /// KakaoTalk's sidebar width and background greys. macOS: measured on KakaoTalk for Mac 26.10, dark and light
 /// (light: #f5f5f5 here shows as the sidebar's on-screen #f7f7f7 after the web view's color conversion). Windows: measured on KakaoTalk 26.10 for Windows (light;
 /// dark uses the macOS greys until measured).
+///
+/// The sidebar part is sized by the page itself (SIZE_SIDEBAR) as a fraction of the ad slot's height:
+/// SIDEBAR_PER_SLOT = sidebar width / slot height, both as KakaoTalk draws them. They scale together, so this holds
+/// whatever the monitor scale or KakaoTalk's own zoom; the web view's CSS pixels don't (on Windows with mixed
+/// monitor scales its devicePixelRatio was 1.25 on one monitor and 1.875 on another). SIDEBAR_WIDTH is only the
+/// fallback before the script runs, in CSS pixels at the default size.
+/// Windows: sidebar 122 px, slot 188 px tall (measured at 150%). macOS: 78 pt over a 100 pt slot (measured on Retina, default size).
+#[cfg(target_os = "macos")]
+pub const SIDEBAR_PER_SLOT: (u32, u32) = (78, 100);
+#[cfg(not(target_os = "macos"))]
+pub const SIDEBAR_PER_SLOT: (u32, u32) = (122, 188);
 #[cfg(target_os = "macos")]
 pub const SIDEBAR_WIDTH: u32 = 78;
 #[cfg(not(target_os = "macos"))]
-pub const SIDEBAR_WIDTH: u32 = 81;
+pub const SIDEBAR_WIDTH: u32 = 65;
 pub const DARK_SIDEBAR: &str = "#2d2d2d";
 pub const DARK_LIST: &str = "#222222";
 #[cfg(target_os = "macos")]
@@ -22,21 +33,27 @@ pub const LIGHT_SIDEBAR: &str = "#ededed";
 pub const LIGHT_LIST: &str = "#ffffff";
 
 pub fn html() -> String {
+    let (num, den) = SIDEBAR_PER_SLOT;
+    let size_sidebar = format!(
+        "<script>var sb=function(){{document.documentElement.style.setProperty('--sb',(innerHeight*{num}/{den})+'px')}};\
+sb();window.addEventListener('resize',sb);</script>"
+    );
     format!(
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">\
 <meta name=\"color-scheme\" content=\"light dark\"><style>\
 html,body{{margin:0;height:100%;overflow:hidden;\
-background:linear-gradient(to right,{DARK_SIDEBAR} {SIDEBAR_WIDTH}px,{DARK_LIST} {SIDEBAR_WIDTH}px)}}\
+background:linear-gradient(to right,{DARK_SIDEBAR} var(--sb,{SIDEBAR_WIDTH}px),{DARK_LIST} var(--sb,{SIDEBAR_WIDTH}px))}}\
 @media (prefers-color-scheme: light){{html,body{{\
-background:linear-gradient(to right,{LIGHT_SIDEBAR} {SIDEBAR_WIDTH}px,{LIGHT_LIST} {SIDEBAR_WIDTH}px)}}}}\
-</style></head><body>{WEBVIEW_READY}</body></html>"
+background:linear-gradient(to right,{LIGHT_SIDEBAR} var(--sb,{SIDEBAR_WIDTH}px),{LIGHT_LIST} var(--sb,{SIDEBAR_WIDTH}px))}}}}\
+</style></head><body>{size_sidebar}{WEBVIEW_READY}</body></html>"
     )
 }
 
 /// KakaoTalk for Windows shows the ad in WebView2 and sends it "ReadyToListen"; an ad that doesn't answer
 /// "AdLoaded" with result true counts as failed, and KakaoTalk swaps in its built-in fallback banner. Real ads
 /// answer it the same way. Does nothing where there is no WebView2 (macOS).
-const WEBVIEW_READY: &str = "<script>if(window.chrome&&window.chrome.webview){window.chrome.webview.addEventListener('message',\
+const WEBVIEW_READY: &str = "<script>if(window.chrome&&window.chrome.webview){\
+window.chrome.webview.addEventListener('message',\
 function(a){try{if(a.data.event.name==='ReadyToListen'){window.chrome.webview.postMessage(\
 {event:{name:'AdLoaded',data:{result:true}}})}}catch(e){}})}</script>";
 
@@ -113,8 +130,10 @@ mod tests {
         assert!(links.iter().all(|u| u.starts_with(LOCAL)), "{links:?}");
         let html = ad["content"].as_str().unwrap();
         assert!(html.contains("#222222") && html.contains(&format!("{SIDEBAR_WIDTH}px")));
-        // the only script is the WebView2 handshake: no network access, no tracking
-        assert_eq!(html.matches("<script").count(), 1);
+        // the only scripts size the sidebar and answer the WebView2 handshake: no network access, no tracking
+        assert_eq!(html.matches("<script").count(), 2);
+        let (num, den) = SIDEBAR_PER_SLOT;
+        assert!(html.contains(&format!("innerHeight*{num}/{den}")) && html.contains("var(--sb,"));
         assert!(html.contains("AdLoaded"));
         for banned in ["http:", "https:", "//", "src=", "fetch", "XMLHttpRequest", "WebSocket", "sendBeacon", "import"] {
             assert!(!html.contains(banned), "blank ad must not load anything: found {banned}");
