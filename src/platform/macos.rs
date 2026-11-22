@@ -348,3 +348,28 @@ mod tests {
         assert!(matches!(r, Err(VerifyError::BadPackage(ref w)) if w.contains("버전")));
     }
 }
+
+// ---------------------------------------------------------------- KakaoTalk active or not (the menu button dims)
+
+const KAKAO_BUNDLE_ID: &str = "com.kakao.KakaoTalkMac";
+
+/// Follows which app is active (NSWorkspace's activation notification, nothing polled) and tells the server
+/// whether it is KakaoTalk, whose sidebar icons dim while another app is in front. Call on the main thread.
+pub fn watch_kakao_active() {
+    use block2::RcBlock;
+    use objc2_app_kit::{NSWorkspace, NSWorkspaceDidActivateApplicationNotification};
+    use objc2_foundation::NSNotification;
+    use std::ptr::NonNull;
+    fn note() {
+        let front = NSWorkspace::sharedWorkspace().frontmostApplication();
+        let id = front.and_then(|a| a.bundleIdentifier()).map(|s| s.to_string());
+        crate::server::set_kakao_active(id.as_deref() == Some(KAKAO_BUNDLE_ID));
+    }
+    let block = RcBlock::new(|_: NonNull<NSNotification>| note());
+    let center = NSWorkspace::sharedWorkspace().notificationCenter();
+    let observer = unsafe {
+        center.addObserverForName_object_queue_usingBlock(Some(NSWorkspaceDidActivateApplicationNotification), None, None, &block)
+    };
+    std::mem::forget(observer);   // kept for the app's lifetime
+    note();
+}

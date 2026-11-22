@@ -969,8 +969,12 @@ name = "kakaoadhide"
 version = "2.2.1"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "mslnk",
  "muda",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "rcgen",
  "rfd",
  "ring",

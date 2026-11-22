@@ -227,7 +227,6 @@ impl App {
                 let p = self.proxy.clone();
                 crate::server::set_menu_handler(menu_token(), move || { let _ = p.send_event(UserEvent::ShowMenu); });
             }
-            #[cfg(windows)]
             platform::watch_kakao_active();
         }
     }

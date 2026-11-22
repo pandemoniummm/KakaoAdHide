@@ -32,8 +32,13 @@ pub const LIGHT_SIDEBAR: &str = "#f5f5f5";
 pub const LIGHT_SIDEBAR: &str = "#ededed";
 pub const LIGHT_LIST: &str = "#ffffff";
 
+/// The menu button's grey in light mode, like KakaoTalk's sidebar icons (macOS: measured, KakaoTalk 26.10).
+#[cfg(target_os = "macos")]
+const ACTIVE_LIGHT: &str = "#595959";
+#[cfg(not(target_os = "macos"))]
+const ACTIVE_LIGHT: &str = "#6f6f6f";
 /// The menu button's grey while KakaoTalk isn't the active app (its sidebar icons dim then), light and dark.
-pub const INACTIVE_LIGHT: &str = "#aeaeae";   // KakaoTalk for Windows, measured
+pub const INACTIVE_LIGHT: &str = "#aeaeae";   // KakaoTalk for Windows, measured; macOS #ababab, close enough
 /// KakaoTalk repaints its icons a moment after it becomes active (Windows: about 24 ms after the click, the
 /// button about 10 ms without waiting, measured on 360 Hz and 60 Hz screens): the button waits the difference, so
 /// both land in the same frame even at 60 Hz. Dimming needs no wait.
@@ -41,7 +46,7 @@ pub const INACTIVE_LIGHT: &str = "#aeaeae";   // KakaoTalk for Windows, measured
 const ACTIVE_DELAY_MS: u32 = 0;
 #[cfg(not(target_os = "macos"))]
 const ACTIVE_DELAY_MS: u32 = 14;
-pub const INACTIVE_DARK: &str = "#757575";   // macOS dark, measured (KakaoTalk 26.10)
+pub const INACTIVE_DARK: &str = "#707070";   // macOS dark, measured (KakaoTalk 26.10)
 
 /// The menu button's size over the slot height, like SIDEBAR_PER_SLOT (Windows: KakaoTalk's sidebar icons are
 /// 36 px in a 188 px slot at 150%; macOS: 18 pt in the 100 pt slot, KakaoTalk for Mac 26.10).
@@ -92,7 +97,7 @@ size();window.addEventListener('resize',size);</script>"
     let button = match menu {
         Some(token) => format!(
             "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);\
-height:var(--ic,19px);padding:calc(var(--ic,19px)*{HOVER_PAD});border-radius:50%;transform:translate(-50%,-50%);color:#6f6f6f;cursor:default}}#kah:hover{{background:rgba(0,0,0,{HOVER_LIGHT})}}{dark_button}.off #kah{{color:{INACTIVE_LIGHT}}}{dark_off}</style><svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"{STROKE}\" \
+height:var(--ic,19px);padding:calc(var(--ic,19px)*{HOVER_PAD});border-radius:50%;transform:translate(-50%,-50%);color:{ACTIVE_LIGHT};cursor:default}}#kah:hover{{background:rgba(0,0,0,{HOVER_LIGHT})}}{dark_button}.off #kah{{color:{INACTIVE_LIGHT}}}{dark_off}</style><svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"{STROKE}\" \
 stroke-linecap=\"round\"><title>KakaoAdHide</title>{TOP_RECT}\
 <rect x=\"3\" y=\"13.5\" width=\"18\" height=\"6.5\" rx=\"3.25\"/></svg>\
 <script>document.getElementById('kah').addEventListener('click',function(){{\
