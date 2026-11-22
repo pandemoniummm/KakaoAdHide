@@ -115,8 +115,7 @@ pub fn in_applications(app: &Path) -> bool {
 pub fn offer_move_to_applications() -> bool {
     let Some(here) = bundle_path() else { return false };
     if in_applications(&here) { return false; }
-    if !crate::ui::confirm("응용 프로그램 폴더로 옮길까요?",
-        "KakaoAdHide는 응용 프로그램 폴더에 있어야 로그인할 때 실행되고 업데이트도 됩니다.", "옮기기", "그대로 실행") {
+    if !crate::ui::ask(&crate::notices::move_to_applications()) {
         return false;
     }
     let system = Path::new("/Applications");
@@ -125,7 +124,7 @@ pub fn offer_move_to_applications() -> bool {
     let _ = std::fs::create_dir_all(&folder);
     if dest.exists() { let _ = Command::new("/bin/rm").arg("-rf").arg(&dest).status(); }
     let copied = Command::new("/usr/bin/ditto").arg(&here).arg(&dest).status().map(|s| s.success()).unwrap_or(false);
-    if !copied { crate::ui::message("옮기지 못했습니다", &format!("{}에 직접 끌어다 놓아 주세요.", folder.display())); return false; }
+    if !copied { crate::ui::error(&crate::notices::move_failed(&folder.display().to_string())); return false; }
     Command::new("/usr/bin/open").arg("-n").arg(&dest).spawn().is_ok()
 }
 

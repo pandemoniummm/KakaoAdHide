@@ -40,7 +40,7 @@ fn main() {
     {
         if !has("--run") && !platform::is_installed_copy() {
             if let Err(e) = platform::install(quiet) {
-                if !quiet { ui::message("KakaoAdHide", &format!("오류가 발생했습니다.\n\n{e}")); }
+                if !quiet { ui::error(&notices::failed(&e)); }
                 std::process::exit(1);
             }
             return;
@@ -60,18 +60,17 @@ fn main() {
 
 /// --update: 0 = update started, 2 = up to date, 3 = not verified, 1 = error.
 fn update_now(quiet: bool) -> i32 {
-    let say = |t: &str, m: &str| if !quiet { ui::message(t, m) };
     match updater::check() {
-        Err(e) => { say("업데이트를 확인하지 못했습니다", &e); 1 }
-        Ok(updater::Check::UpToDate) => { say("최신 버전입니다", &format!("KakaoAdHide {VERSION}")); 2 }
+        Err(e) => { if !quiet { ui::error(&notices::check_failed(&e)); } 1 }
+        Ok(updater::Check::UpToDate) => { if !quiet { ui::show(&notices::up_to_date()); } 2 }
         Ok(updater::Check::Available(f)) => match platform::install_update(&f) {
             Ok(()) => 0,
             Err(updater::InstallError::Verify(e)) => {
-                say("업데이트를 설치하지 않았습니다", &format!("새 버전({})을 검증하지 못했습니다.\n{e}\n\n릴리스 페이지에서 직접 받아 주세요.", f.version));
-                if !quiet { platform::open_url(&f.page_url()); }
+                eprintln!("update {} not verified: {e}", f.version);
+                if !quiet && ui::ask(&notices::update_unverified()) { platform::open_url(&f.page_url()); }
                 3
             }
-            Err(e) => { say("업데이트를 받지 못했습니다", &e.to_string()); 1 }
+            Err(e) => { if !quiet { ui::error(&notices::download_failed(&e.to_string())); } 1 }
         },
     }
 }

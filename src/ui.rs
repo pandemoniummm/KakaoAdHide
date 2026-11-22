@@ -1,6 +1,7 @@
 //! The tray (Windows) / menu bar (macOS) app: first-time setup with consent, the local ad server, update checks.
 
 use crate::feed::Feed;
+use crate::notices::{self, Ask, Notice, Problem};
 use crate::setup::{self, Status};
 use crate::updater::{self, Check};
 use crate::{platform, VERSION};
@@ -19,11 +20,17 @@ pub fn confirm(title: &str, text: &str, ok: &str, cancel: &str) -> bool { confir
 
 /// Something to know, nothing to decide: a notification on Windows (a message box if it can't be shown), a
 /// message box elsewhere for now.
-pub fn notify(title: &str, text: &str) {
+pub fn show(n: &Notice) {
     #[cfg(windows)]
-    if platform::notify(title, text, None) { return; }
-    message(title, text);
+    if platform::notify(&n.title, &n.body, None) { return; }
+    message(&n.title, &n.body);
 }
+
+/// A question; true when the user picks `ok`.
+pub fn ask(a: &Ask) -> bool { confirm_label(&a.title, &a.body, a.ok, a.cancel) }
+
+/// Something went wrong: a message box (not a notification that could be missed).
+pub fn error(p: &Problem) { message(&p.title, &p.body) }
 
 fn confirm_label(title: &str, text: &str, ok: &str, cancel: &str) -> bool {
     match rfd::MessageDialog::new().set_level(rfd::MessageLevel::Info).set_title(title).set_description(text)
@@ -34,12 +41,6 @@ fn confirm_label(title: &str, text: &str, ok: &str, cancel: &str) -> bool {
         _ => false,
     }
 }
-
-const CONSENT: &str = "카카오톡 광고 칸을 비우려면 처음 한 번 설정이 필요합니다.\n\n\
-• 이 컴퓨터에서만 쓰는 인증서를 만들고 신뢰하도록 등록합니다. 카카오톡 광고 주소 두 개(serv.ds.kakao.com, display.ad.daum.net)에만 쓸 수 있고, 다른 사이트에는 쓸 수 없습니다.\n\
-• hosts 파일에 두 광고 주소를 이 컴퓨터로 보내는 줄을 넣습니다(관리자 권한 필요).\n\
-• 그러면 KakaoAdHide가 광고 대신 빈 칸을 돌려줍니다. 광고 서버에는 접속하지 않습니다.\n\n\
-같은 광고 주소를 쓰는 웹사이트(다음 등)의 광고도 함께 안 보일 수 있습니다. 제거하면 모두 원래대로 돌아갑니다.";
 
 enum UserEvent {
     Menu(MenuId),
@@ -86,11 +87,11 @@ struct App {
 impl App {
     fn status_text(&self) -> String {
         match &self.status {
-            Status::Serving => "광고 칸을 비우는 중".into(),
-            Status::NotSetUp => "설정이 필요합니다".into(),
-            Status::PortBusy(_) => "443 포트를 다른 프로그램이 쓰고 있습니다".into(),
-            Status::NotRouted => "광고 주소가 이 컴퓨터로 오지 않습니다".into(),
-            Status::Failed(e) => format!("오류: {e}"),
+            Status::Serving => notices::status::SERVING.into(),
+            Status::NotSetUp => notices::status::NOT_SET_UP.into(),
+            Status::PortBusy(_) => notices::status::PORT_BUSY.into(),
+            Status::NotRouted => notices::status::NOT_ROUTED.into(),
+            Status::Failed(e) => notices::status::failed(e),
         }
     }
 
@@ -98,20 +99,21 @@ impl App {
         let menu = Menu::new();
         let header = MenuItem::new(format!("KakaoAdHide {VERSION}"), false, None);
         let status = MenuItem::new(self.status_text(), false, None);
-        let setup = MenuItem::new("설정하기…", self.status != Status::Serving, None);
-        let update = MenuItem::new("업데이트", false, None);
-        let changes = MenuItem::new("변경 내역 보기", false, None);
-        let skip = MenuItem::new("이 버전 건너뛰기", false, None);
-        let check = MenuItem::new("업데이트 확인", true, None);
-        let auto_check = CheckMenuItem::new("업데이트 자동 확인", true, updater::enabled(), None);
-        let login = CheckMenuItem::new("로그인할 때 실행", cfg!(target_os = "macos"), platform::login_item_enabled(), None);
-        let uninstall = MenuItem::new("KakaoAdHide 제거…", true, None);
-        let quit = MenuItem::new("종료", true, None);
+        use notices::menu as m;
+        let setup = MenuItem::new(m::SETUP, self.status != Status::Serving, None);
+        let update = MenuItem::new(m::UPDATE, false, None);
+        let changes = MenuItem::new(m::CHANGES, false, None);
+        let skip = MenuItem::new(m::SKIP, false, None);
+        let check = MenuItem::new(m::CHECK, true, None);
+        let auto_check = CheckMenuItem::new(m::AUTO_CHECK, true, updater::enabled(), None);
+        let login = CheckMenuItem::new(m::LOGIN, cfg!(target_os = "macos"), platform::login_item_enabled(), None);
+        let uninstall = MenuItem::new(m::UNINSTALL, true, None);
+        let quit = MenuItem::new(m::QUIT, true, None);
         let _ = menu.append_items(&[&header, &status]);
         if self.status != Status::Serving { let _ = menu.append(&setup); }
         let _ = menu.append(&PredefinedMenuItem::separator());
         if let Some(f) = &self.pending {
-            update.set_text(format!("{}(으)로 업데이트", f.version));
+            update.set_text(m::update_to(&f.version));
             update.set_enabled(true);
             changes.set_enabled(true);
             skip.set_enabled(true);
@@ -145,20 +147,20 @@ impl App {
         if m.any() {
             let agreed = platform::get("Consented").is_some();
             if !agreed && !ask { self.status = Status::NotSetUp; return; }
-            if !agreed && !confirm_label("KakaoAdHide 설정", CONSENT, "설정하기", "나중에") {
+            if !agreed && !self::ask(&notices::first_setup()) {
                 self.status = Status::NotSetUp;
                 return;
             }
             platform::set("Consented", Some("1"));
             if let Err(e) = setup::complete(&m) {
                 self.status = Status::NotSetUp;
-                message("설정을 마치지 못했습니다", &e);
+                error(&notices::setup_failed(&e));
                 return;
             }
         }
         self.status = setup::serve();
         if let Status::PortBusy(e) = &self.status {
-            message("광고 칸을 비우지 못했습니다", &format!("443 포트를 다른 프로그램이 쓰고 있습니다.\n\n{e}"));
+            error(&notices::port_busy(e));
         }
     }
 
@@ -169,24 +171,22 @@ impl App {
 
     fn install(&mut self, f: Feed) -> bool {
         if !platform::can_update_in_place() {
-            message("업데이트를 설치하지 않았습니다", &format!("{}\n\n릴리스 페이지에서 직접 받아 주세요.", updater::InstallError::NotInApplications));
-            platform::open_url(&f.page_url());
+            if ask(&notices::update_not_possible()) { platform::open_url(&f.page_url()); }
             return false;
         }
         match platform::install_update(&f) {
             Ok(()) => true,
             Err(updater::InstallError::Verify(e)) => {
-                message("업데이트를 설치하지 않았습니다", &format!("새 버전({})을 검증하지 못해 설치하지 않았습니다.\n{e}\n\n릴리스 페이지에서 직접 받아 주세요.", f.version));
-                platform::open_url(&f.page_url());
+                crate::server::note(&format!("update {} not verified: {e}", f.version));
+                if ask(&notices::update_unverified()) { platform::open_url(&f.page_url()); }
                 false
             }
-            Err(e) => { message("업데이트를 받지 못했습니다", &format!("인터넷 연결을 확인하고 다시 시도해 주세요.\n\n{e}")); false }
+            Err(e) => { error(&notices::download_failed(&e.to_string())); false }
         }
     }
 
     fn offer(&mut self, f: Feed) -> bool {
-        let text = format!("KakaoAdHide {}이 나왔습니다. 지금 업데이트할까요?\n받은 파일의 서명을 확인한 뒤에만 설치합니다.", f.version);
-        if confirm_label("업데이트", &text, "업데이트", "나중에") { return self.install(f); }
+        if ask(&notices::offer_update(&f.version)) { return self.install(f); }
         false
     }
 }
@@ -217,7 +217,7 @@ impl App {
         self.tray = builder.build().ok();
         self.refresh();
         if let Some(prev) = &updated_from {
-            notify("업데이트 완료", &format!("KakaoAdHide {VERSION}\n이전 버전 {prev}"));
+            show(&notices::updated(prev));
         }
         #[cfg(any(windows, target_os = "macos"))]
         {
@@ -278,11 +278,9 @@ impl App {
                     #[cfg(windows)]
                     if !interactive {
                         let p = self.proxy.clone();
-                        let shown = platform::notify(
-                            "새 버전",
-                            &format!("KakaoAdHide {}\n눌러서 업데이트", f.version),
-                            Some(Box::new(move || { let _ = p.send_event(UserEvent::OfferUpdate); })),
-                        );
+                        let n = notices::new_version(&f.version);
+                        let shown = platform::notify(&n.title, &n.body,
+                            Some(Box::new(move || { let _ = p.send_event(UserEvent::OfferUpdate); })));
                         if shown { return false; }
                     }
                     return self.offer(f);
@@ -291,9 +289,9 @@ impl App {
             Ok(Check::UpToDate) => {
                 self.pending = None;
                 self.refresh();
-                if interactive { notify("최신 버전", &format!("KakaoAdHide {VERSION}")); }
+                if interactive { show(&notices::up_to_date()); }
             }
-            Err(e) => if interactive { message("업데이트를 확인하지 못했습니다", &e) },
+            Err(e) => if interactive { error(&notices::check_failed(&e)) },
         }
         false
     }
@@ -311,7 +309,7 @@ impl App {
         match self.action(id) {
             Some(Action::Setup) => {
                 if self.status == Status::NotRouted {
-                    if let Err(e) = platform::set_hosts(true) { message("설정을 마치지 못했습니다", &e); }
+                    if let Err(e) = platform::set_hosts(true) { error(&notices::setup_failed(&e)); }
                     self.status = if setup::routed() { Status::Serving } else { Status::NotRouted };
                 } else {
                     platform::set("Consented", None);
@@ -328,16 +326,18 @@ impl App {
             }
             Some(Action::AutoCheck) => { updater::set_enabled(!updater::enabled()); self.refresh(); }
             Some(Action::Login) => {
-                if let Err(e) = platform::set_login_item(!platform::login_item_enabled()) { message("로그인 항목을 바꾸지 못했습니다", &e); }
+                if let Err(e) = platform::set_login_item(!platform::login_item_enabled()) { error(&notices::login_item_failed(&e)); }
                 self.refresh();
             }
             Some(Action::Uninstall) => {
-                if !confirm_label("KakaoAdHide 제거", "제거할까요? 인증서, hosts 파일에 넣은 줄, 설정을 지우고 앱을 삭제합니다. 카카오톡은 그대로입니다.", "제거", "취소") {
-                    return false;
-                }
-                match platform::uninstall(false) {
-                    Ok(()) => if cfg!(target_os = "macos") { message("제거했습니다", "KakaoAdHide를 지웠습니다.") },
-                    Err(e) => message("일부를 정리하지 못했습니다", &e),
+                if !ask(&notices::uninstall()) { return false; }
+                // Windows says how it went itself (the same uninstall runs from Settings > Apps)
+                let result = platform::uninstall(false);
+                if cfg!(target_os = "macos") {
+                    match result {
+                        Ok(()) => show(&notices::removed()),
+                        Err(e) => error(&notices::uninstall_incomplete(&e)),
+                    }
                 }
                 return true;
             }

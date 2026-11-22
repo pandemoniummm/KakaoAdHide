@@ -6,6 +6,7 @@ pub mod certs;
 pub mod feed;
 pub mod hosts;
 pub mod keys;
+pub mod notices;
 pub mod platform;
 pub mod server;
 pub mod setup;

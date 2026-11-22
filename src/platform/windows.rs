@@ -229,7 +229,7 @@ pub fn install(quiet: bool) -> Result<(), String> {
     let _ = k.set_value("EstimatedSize", &size_kb);
 
     if !quiet && !existing {
-        crate::ui::notify("설치 완료", "로그인하면 함께 켜집니다\n메뉴: 카카오톡 빈 칸 왼쪽 버튼");
+        crate::ui::show(&crate::notices::installed());
     }
     Command::new(installed_exe()).current_dir(install_dir()).spawn().map_err(|e| e.to_string())?;
     Ok(())
@@ -243,14 +243,16 @@ pub fn uninstall(quiet: bool) -> Result<(), String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let _ = hkcu.delete_subkey_all(UNINSTALL_KEY);
     let _ = hkcu.delete_subkey_all(APP_KEY);
-    let _ = hkcu.delete_subkey_all(NOTIFY_APP_KEY);
     let _ = std::fs::remove_dir_all(update_temp_dir());
     let _ = std::fs::remove_dir_all(setup::cert_dir());
     for log in ["server.log", "server.log.old"] { let _ = std::fs::remove_file(data_dir().join(log)); }
     if !quiet {
-        let extra = match &undo { Ok(()) => String::new(), Err(e) => format!("\n\n일부를 정리하지 못했습니다:\n{e}") };
-        crate::ui::message("KakaoAdHide", &format!("제거했습니다.{extra}"));
+        match &undo {
+            Ok(()) => crate::ui::show(&crate::notices::removed()),
+            Err(e) => crate::ui::error(&crate::notices::uninstall_incomplete(e)),
+        }
     }
+    let _ = hkcu.delete_subkey_all(NOTIFY_APP_KEY);   // after the notification above, which is shown under it
     // The exe can't delete itself while running: cmd does it after we exit (rmdir without /s only removes an
     // empty folder, so nothing else that happens to be in there is touched). Uninstalling from the tray menu runs
     // in the app itself, which can take a while to exit, so cmd keeps retrying for about a minute.

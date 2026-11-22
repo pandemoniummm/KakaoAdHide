@@ -89,6 +89,9 @@ pub fn set_log(path: Option<PathBuf>) {
     if let Ok(mut g) = LOG.lock() { *g = path; }
 }
 
+/// A line in server.log from elsewhere in the app (e.g. why an update didn't verify).
+pub fn note(line: &str) { log(line) }
+
 fn log(line: &str) {
     let Ok(guard) = LOG.lock() else { return };
     let Some(path) = guard.as_ref() else { return };
