@@ -165,7 +165,7 @@ fn read_request(r: &mut impl BufRead) -> std::io::Result<Option<Request>> {
 
 pub fn respond(method: &str, path: &str) -> (&'static str, &'static str, String) {
     if (method == "GET" || method == "HEAD") && path == "/sdk/banner" {
-        ("200 OK", "application/json; charset=utf-8", crate::banner::response_json())
+        ("200 OK", "application/json", crate::banner::response_json())
     } else {
         ("204 No Content", "text/plain", String::new())
     }
