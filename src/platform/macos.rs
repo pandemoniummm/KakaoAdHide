@@ -312,17 +312,26 @@ pub fn start_kakao(at_sign_in: bool) {
     let _ = Command::new("/usr/bin/open").args(["-b", KAKAO_BUNDLE_ID]).spawn();
 }
 
-/// Follows which app is active (NSWorkspace's activation notification, nothing polled) and tells the server
-/// whether it is KakaoTalk, whose sidebar icons dim while another app is in front. Call on the main thread.
+/// KakaoTalk's process id while it is the active app, 0 otherwise.
+static KAKAO_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// Tells the server whether KakaoTalk's main window is in front, as KakaoTalk dims its sidebar icons otherwise:
+/// another app in front (NSWorkspace's activation notification), or one of KakaoTalk's other windows (a chat
+/// room, settings). Those are told apart by the window list, checked every 250 ms but only while KakaoTalk is the
+/// active app: its main window is the one as wide as the blank ad (`server::ad_width`). Window titles would say
+/// it directly but need the Screen Recording permission. Call on the main thread.
 pub fn watch_kakao_active() {
     use block2::RcBlock;
     use objc2_app_kit::{NSWorkspace, NSWorkspaceDidActivateApplicationNotification};
     use objc2_foundation::NSNotification;
     use std::ptr::NonNull;
+    use std::sync::atomic::Ordering;
     fn note() {
         let front = NSWorkspace::sharedWorkspace().frontmostApplication();
-        let id = front.and_then(|a| a.bundleIdentifier()).map(|s| s.to_string());
-        crate::server::set_kakao_active(id.as_deref() == Some(KAKAO_BUNDLE_ID));
+        let pid = front.filter(|a| a.bundleIdentifier().is_some_and(|s| s.to_string() == KAKAO_BUNDLE_ID))
+            .map(|a| a.processIdentifier()).unwrap_or(0);
+        KAKAO_PID.store(pid, Ordering::SeqCst);
+        crate::server::set_kakao_active(pid != 0 && main_window_in_front(pid));
     }
     let block = RcBlock::new(|_: NonNull<NSNotification>| note());
     let center = NSWorkspace::sharedWorkspace().notificationCenter();
@@ -331,6 +340,48 @@ pub fn watch_kakao_active() {
     };
     std::mem::forget(observer);   // kept for the app's lifetime
     note();
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let pid = KAKAO_PID.load(Ordering::SeqCst);
+        if pid != 0 { crate::server::set_kakao_active(main_window_in_front(pid)); }
+    });
+}
+
+/// Whether KakaoTalk's frontmost window is its main window. True when that can't be told (the blank ad hasn't
+/// said its width yet, or KakaoTalk shows no window), so the button then just follows the active app.
+fn main_window_in_front(pid: i32) -> bool {
+    let width = crate::server::ad_width() as f64;
+    if width == 0.0 { return true; }
+    let windows = app_windows(pid);
+    let Some(&(front, _)) = windows.first() else { return true };
+    // the lowest window number if several are as wide (the main window is usually KakaoTalk's first)
+    let main = windows.iter().filter(|w| (w.1 - width).abs() < 1.5).map(|w| w.0).min();
+    main == Some(front)
+}
+
+/// The on-screen normal windows (layer 0) of process `pid`, front to back: (window number, width in points).
+fn app_windows(pid: i32) -> Vec<(i64, f64)> {
+    use objc2::rc::{autoreleasepool, Retained};
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString};
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" { fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *mut AnyObject; }
+    const ON_SCREEN_ONLY: u32 = 1 << 0;
+    const EXCLUDE_DESKTOP: u32 = 1 << 4;
+    autoreleasepool(|_| {
+        let ptr = unsafe { CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP, 0) };
+        // a CFArray of CFDictionary (toll-free bridged), owned by us (a Copy function)
+        let Some(list) = (unsafe { Retained::<NSArray<NSDictionary<NSString, AnyObject>>>::from_raw(ptr.cast()) }) else { return Vec::new() };
+        let number = |d: &NSDictionary<NSString, AnyObject>, key: &str| {
+            d.objectForKey(&NSString::from_str(key)).and_then(|v| v.downcast::<NSNumber>().ok())
+        };
+        list.iter().filter_map(|d| {
+            if number(&d, "kCGWindowOwnerPID")?.intValue() != pid || number(&d, "kCGWindowLayer")?.intValue() != 0 { return None; }
+            let bounds = d.objectForKey(&NSString::from_str("kCGWindowBounds"))?.downcast::<NSDictionary>().ok()?;
+            let width = bounds.objectForKey(&NSString::from_str("Width"))?.downcast::<NSNumber>().ok()?.doubleValue();
+            Some((number(&d, "kCGWindowNumber")?.longLongValue(), width))
+        }).collect()
+    })
 }
 
 #[cfg(test)]

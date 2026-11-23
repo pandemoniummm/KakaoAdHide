@@ -170,6 +170,12 @@ pub fn set_kakao_active(active: bool) {
     if s.0 != active { *s = (active, s.1 + 1); STATE_CHANGED.notify_all(); }
 }
 
+/// The blank ad's width in points (macOS sends it with the state stream: `&w=`), 0 until known. It is the width
+/// of KakaoTalk's main window, which the platform code looks for among KakaoTalk's windows.
+static AD_WIDTH: AtomicUsize = AtomicUsize::new(0);
+
+pub fn ad_width() -> usize { AD_WIDTH.load(Ordering::SeqCst) }
+
 fn token_ok(query: &str) -> bool {
     menu_token().is_some_and(|t| query.split('&').any(|kv| kv.strip_prefix("t=") == Some(t.as_str())))
 }
@@ -180,6 +186,9 @@ fn stream_state(w: &mut impl Write, req: &Request) -> std::io::Result<()> {
     if !token_ok(&req.query) || STREAMS.load(Ordering::SeqCst) >= MAX_STREAMS {
         w.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?;
         return w.flush();
+    }
+    if let Some(w) = req.query.split('&').find_map(|kv| kv.strip_prefix("w=")).and_then(|w| w.parse::<usize>().ok()) {
+        if (1..=10_000).contains(&w) { AD_WIDTH.store(w, Ordering::SeqCst); }
     }
     STREAMS.fetch_add(1, Ordering::SeqCst);
     struct Done;

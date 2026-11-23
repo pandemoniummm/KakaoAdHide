@@ -40,8 +40,8 @@ tauri-winrt-notification = "0.8.1"
 # Already used by tao and muda: whether KakaoTalk is the active app (NSWorkspace activation notifications).
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSNotification", "NSString", "NSOperation"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSRunningApplication"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSNotification", "NSString", "NSOperation", "NSArray", "NSDictionary", "NSValue", "NSEnumerator"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSWorkspace", "NSRunningApplication"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"

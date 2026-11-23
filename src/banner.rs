@@ -94,6 +94,18 @@ size();window.addEventListener('resize',size);</script>"
         ("@media (prefers-color-scheme: dark){#kah{color:#b9b9b9}#kah:hover{background:rgba(255,255,255,.05)}}".to_string(),
          format!("@media (prefers-color-scheme: dark){{.off #kah{{color:{INACTIVE_DARK}}}}}"))
     } else { (String::new(), String::new()) };
+    // The state stream (dims the button). macOS also says how wide the ad slot is, which is the main window's
+    // width: the app tells KakaoTalk's main window from its other windows (chat rooms, settings) by it, and
+    // KakaoTalk dims its icons while one of those is in front. Sent again (a new stream) when the width changes.
+    let on_state = format!("function(e){{clearTimeout(kt);var off=e.data==='inactive',c=document.documentElement.classList;\
+if(off)c.add('off');else kt=setTimeout(function(){{c.remove('off')}},{ACTIVE_DELAY_MS})}}");
+    let state = match menu {
+        Some(token) if SEND_WIDTH => format!("var kt,es,ew,rt;function st(){{var w=innerWidth;if(w===ew)return;ew=w;\
+if(es)es.close();try{{es=new EventSource('{STATE_URL}?t={token}&w='+w);es.onmessage={on_state}}}catch(e){{}}}}\
+st();window.addEventListener('resize',function(){{clearTimeout(rt);rt=setTimeout(st,300)}});"),
+        Some(token) => format!("var kt;try{{new EventSource('{STATE_URL}?t={token}').onmessage={on_state}}}catch(e){{}}"),
+        None => String::new(),
+    };
     let button = match menu {
         Some(token) => format!(
             "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);\
@@ -103,9 +115,7 @@ stroke-linecap=\"round\"><title>KakaoAdHide</title>{TOP_RECT}\
 <script>document.getElementById('kah').addEventListener('click',function(){{\
 fetch('{MENU_URL}?t={token}',{{mode:'no-cors',cache:'no-store'}}).catch(function(){{}})}});\
 document.addEventListener('contextmenu',function(e){{e.preventDefault()}});\
-var kt;try{{new EventSource('{STATE_URL}?t={token}').onmessage=function(e){{clearTimeout(kt);\
-var off=e.data==='inactive',c=document.documentElement.classList;\
-if(off)c.add('off');else kt=setTimeout(function(){{c.remove('off')}},{ACTIVE_DELAY_MS})}}}}catch(e){{}}</script>"
+{state}</script>"
         ),
         None => String::new(),
     };
@@ -150,6 +160,8 @@ const LOCAL: &str = "https://serv.ds.kakao.com/ev/";
 pub const MENU_URL: &str = "https://serv.ds.kakao.com/kakaoadhide/menu";
 /// The blank ad listens here for KakaoTalk's window state, to dim the button with KakaoTalk's icons.
 pub const STATE_URL: &str = "https://serv.ds.kakao.com/kakaoadhide/state";
+/// macOS: the state stream also carries the ad slot's width (`&w=`), see `html`.
+const SEND_WIDTH: bool = cfg!(target_os = "macos");
 
 /// KakaoTalk's ad placements that get the blank ad: the bottom banner, which can't be removed, only filled.
 /// Every other placement (Windows: a popup by the tray on the first start of the day) gets no ad, so it doesn't
