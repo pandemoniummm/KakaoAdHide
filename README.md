@@ -3,6 +3,8 @@
 카카오톡 PC(Windows, macOS)의 광고 배너를 비우는 작은 프로그램입니다.
 카카오톡이 광고를 받아 오는 요청을 이 컴퓨터 안에서 대신 받아, 광고 대신 **카카오톡 배경색만 칠한 빈 칸**을 돌려줍니다.
 
+**다운로드: [pandemoniummm.github.io/KakaoAdHide](https://pandemoniummm.github.io/KakaoAdHide/)**
+
 > 비공식 프로젝트입니다. 카카오(Kakao Corp.)와 관련이 없습니다.
 
 ## 특징
