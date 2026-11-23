@@ -18,10 +18,9 @@ pub fn message(title: &str, text: &str) {
 
 pub fn confirm(title: &str, text: &str, ok: &str, cancel: &str) -> bool { confirm_label(title, text, ok, cancel) }
 
-/// Something to know, nothing to decide: a notification on Windows (a message box if it can't be shown), a
-/// message box elsewhere for now.
+/// Something to know, nothing to decide: a notification (a message box if it can't be shown, e.g. not allowed).
 pub fn show(n: &Notice) {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     if platform::notify(&n.title, &n.body, &[], None) { return; }
     message(&n.title, &n.body);
 }
@@ -52,8 +51,8 @@ enum UserEvent {
     /// The blank ad's logo was clicked: show the menu at the cursor.
     #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
     ShowMenu,
-    /// The "new version" notification or its Update button was clicked: install (Windows).
-    #[cfg_attr(not(windows), allow(dead_code))]
+    /// The "new version" notification or its Update button was clicked: install.
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
     InstallUpdate,
 }
 
@@ -201,7 +200,7 @@ impl App {
     /// First event: setup and server, KakaoTalk (when started by hand), the tray icon, the blank ad's menu.
     fn init(&mut self, at_sign_in: bool, target: &EventLoopWindowTarget<UserEvent>) {
         platform::first_run();
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         platform::register_notifications();
         let updated_from = updater::note_version();
         self.start(true);
@@ -283,9 +282,9 @@ impl App {
                 let first_notice = updater::notified().as_deref() != Some(f.version.as_str());
                 if interactive || first_notice {
                     updater::set_notified(&f.version);
-                    // Windows: a notification with Update / Later (found by the daily check or from the menu);
-                    // the notification itself or Update installs, no further question
-                    #[cfg(windows)]
+                    // a notification with Update / Later (found by the daily check or from the menu); the
+                    // notification itself or Update installs, no further question
+                    #[cfg(any(windows, target_os = "macos"))]
                     {
                         let p = self.proxy.clone();
                         let n = notices::new_version(&f.version);
@@ -415,7 +414,7 @@ pub fn run(at_sign_in: bool) -> ! {
             Event::NewEvents(StartCause::Init) => { app.init(at_sign_in, target); false }
             #[cfg(any(windows, target_os = "macos"))]
             Event::UserEvent(UserEvent::ShowMenu) => { app.show_menu(); false }
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             Event::UserEvent(UserEvent::InstallUpdate) => app.pending.clone().is_some_and(|f| app.install(f)),
             Event::UserEvent(UserEvent::Quit) => true,
             Event::UserEvent(UserEvent::RouteCheck) => { app.route_check(); false }

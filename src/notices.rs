@@ -23,7 +23,7 @@ fn problem(title: &str, body: String) -> Problem { Problem { title: title.into()
 // ---------------------------------------------------------------- notifications
 
 pub fn updated(previous: &str) -> Notice { notice("업데이트 완료", format!("KakaoAdHide {VERSION}\n이전 버전 {previous}")) }
-/// Windows: shown with the buttons below; the notification itself or `UPDATE` installs, `LATER` closes it.
+/// Shown with the buttons below; the notification itself or `UPDATE` installs, `LATER` closes it.
 pub fn new_version(version: &str) -> Notice { notice("새 버전", format!("KakaoAdHide {version}\n지금 업데이트할까요?")) }
 pub const UPDATE: &str = "업데이트";
 pub const LATER: &str = "나중에";

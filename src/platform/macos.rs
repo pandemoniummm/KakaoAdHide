@@ -402,6 +402,120 @@ fn app_windows(pid: i32) -> Vec<(i64, f64)> {
     })
 }
 
+// ---------------------------------------------------------------- notifications (Notification Center)
+
+mod notify {
+    use objc2::rc::Retained;
+    use objc2::runtime::{Bool, NSObject, NSObjectProtocol, ProtocolObject};
+    use objc2::{define_class, msg_send, AllocAnyThread};
+    use objc2_foundation::{NSArray, NSBundle, NSError, NSSet, NSString};
+    use objc2_user_notifications::*;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Duration;
+    use std::sync::Mutex;
+
+    pub type OnClick = Box<dyn Fn(Option<String>) + Send>;
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    /// What to do when a shown notification (by request id) or one of its buttons is clicked.
+    static CLICKS: Mutex<Option<HashMap<String, OnClick>>> = Mutex::new(None);
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[name = "KakaoAdHideNotificationDelegate"]
+        struct Delegate;
+
+        unsafe impl NSObjectProtocol for Delegate {}
+
+        unsafe impl UNUserNotificationCenterDelegate for Delegate {
+            // shown as a banner even while KakaoAdHide counts as the active app (its menu is open)
+            #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
+            fn will_present(&self, _c: &UNUserNotificationCenter, _n: &UNNotification,
+                            done: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>) {
+                done.call((UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List,));
+            }
+
+            #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
+            fn did_receive(&self, _c: &UNUserNotificationCenter, response: &UNNotificationResponse, done: &block2::DynBlock<dyn Fn()>) {
+                let id = response.notification().request().identifier().to_string();
+                let action = response.actionIdentifier().to_string();
+                let f = CLICKS.lock().ok().and_then(|mut g| g.as_mut().and_then(|m| m.remove(&id)));
+                if let Some(f) = f {
+                    let default = unsafe { UNNotificationDefaultActionIdentifier }.to_string();
+                    if action == default { f(None) } else if !action.contains("Dismiss") { f(Some(action)) }
+                }
+                done.call(());
+            }
+        }
+    );
+
+    /// Notification Center needs an app bundle: false when run from a bare binary (cargo run, tests).
+    fn in_bundle() -> bool { NSBundle::mainBundle().bundleIdentifier().is_some() }
+
+    /// Asks for permission (macOS asks the user once) and registers `buttons` as the one set of notification
+    /// buttons this app uses. Call once at start, on the main thread.
+    pub fn register(buttons: &[(&str, &str)]) {
+        if !in_bundle() { return; }
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        let delegate: Retained<Delegate> = unsafe { msg_send![Delegate::alloc(), init] };
+        center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        std::mem::forget(delegate);   // the center holds its delegate weakly: kept for the app's lifetime
+        let actions: Vec<Retained<UNNotificationAction>> = buttons.iter().map(|(label, id)| {
+            UNNotificationAction::actionWithIdentifier_title_options(&NSString::from_str(id), &NSString::from_str(label), UNNotificationActionOptions::empty())
+        }).collect();
+        let category = UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+            &NSString::from_str(&category_id(buttons)), &NSArray::from_retained_slice(&actions), &NSArray::new(), UNNotificationCategoryOptions::empty());
+        center.setNotificationCategories(&NSSet::from_retained_slice(&[category]));
+        let answered = block2::RcBlock::new(|_granted: Bool, _e: *mut NSError| {});
+        center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &answered);
+    }
+
+    /// Whether a notification would show now: allowed, with alerts on. Asked each time (the user can turn them
+    /// off in System Settings at any moment); false if there's no answer within a second.
+    fn alerts_on() -> bool {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let got = block2::RcBlock::new(move |s: std::ptr::NonNull<UNNotificationSettings>| {
+            let s = unsafe { s.as_ref() };
+            let allowed = matches!(s.authorizationStatus(), UNAuthorizationStatus::Authorized | UNAuthorizationStatus::Provisional);
+            let _ = tx.send(allowed && s.alertSetting() == UNNotificationSetting::Enabled);
+        });
+        UNUserNotificationCenter::currentNotificationCenter().getNotificationSettingsWithCompletionHandler(&got);
+        rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false)
+    }
+
+    fn category_id(buttons: &[(&str, &str)]) -> String {
+        buttons.iter().map(|(_, id)| *id).collect::<Vec<_>>().join("-")
+    }
+
+    /// Shows a notification; false when it wouldn't show (not allowed, not answered yet, or alerts turned off),
+    /// so the caller shows a dialog instead. `buttons` must be the set given to `register` (or empty).
+    pub fn show(title: &str, text: &str, buttons: &[(&str, &str)], on_click: Option<OnClick>) -> bool {
+        if !in_bundle() || !alerts_on() { return false; }
+        let content = UNMutableNotificationContent::new();
+        content.setTitle(&NSString::from_str(title));
+        content.setBody(&NSString::from_str(text));
+        if !buttons.is_empty() { content.setCategoryIdentifier(&NSString::from_str(&category_id(buttons))); }
+        let id = format!("kakaoadhide-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst));
+        if let Some(f) = on_click {
+            if let Ok(mut g) = CLICKS.lock() { g.get_or_insert_with(HashMap::new).insert(id.clone(), f); }
+        }
+        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(&id), &content, None);
+        UNUserNotificationCenter::currentNotificationCenter().addNotificationRequest_withCompletionHandler(&request, None);
+        true
+    }
+}
+
+/// Registers the app for notifications (macOS asks the user once) with the update notification's buttons.
+pub fn register_notifications() {
+    notify::register(&[(crate::notices::UPDATE, "update"), (crate::notices::LATER, "later")]);
+}
+
+/// Shows a notification in Notification Center: `title`, then `text`. `on_click` gets the clicked button's id,
+/// or None for the notification itself. False if it can't be shown (not allowed): show a dialog then.
+pub fn notify(title: &str, text: &str, buttons: &[(&str, &str)], on_click: Option<Box<dyn Fn(Option<String>) + Send>>) -> bool {
+    notify::show(title, text, buttons, on_click)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
