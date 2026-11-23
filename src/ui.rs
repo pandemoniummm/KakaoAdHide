@@ -101,7 +101,6 @@ impl App {
         let status = MenuItem::new(self.status_text(), false, None);
         use notices::menu as m;
         let setup = MenuItem::new(m::SETUP, self.status != Status::Serving, None);
-        // macOS only for now: Windows would need to end another process (#12)
         let restart_kakao = MenuItem::new(m::RESTART_KAKAO, true, None);
         let update = MenuItem::new(m::UPDATE, false, None);
         let changes = MenuItem::new(m::CHANGES, false, None);
@@ -113,7 +112,7 @@ impl App {
         let quit = MenuItem::new(m::QUIT, true, None);
         let _ = menu.append_items(&[&header, &status]);
         if self.status != Status::Serving { let _ = menu.append(&setup); }
-        if cfg!(target_os = "macos") { let _ = menu.append(&restart_kakao); }
+        if cfg!(any(windows, target_os = "macos")) { let _ = menu.append(&restart_kakao); }
         let _ = menu.append(&PredefinedMenuItem::separator());
         if let Some(f) = &self.pending {
             update.set_text(m::update_to(&f.version));
@@ -329,7 +328,7 @@ impl App {
                 self.refresh();
             }
             Some(Action::RestartKakao) => {
-                #[cfg(target_os = "macos")]
+                #[cfg(any(windows, target_os = "macos"))]
                 platform::restart_kakao();
             }
             Some(Action::Check) => self.check_updates(true),

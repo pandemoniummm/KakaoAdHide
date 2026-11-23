@@ -368,27 +368,47 @@ fn is_kakao_main(hwnd: windows_sys::Win32::Foundation::HWND) -> bool {
     n > 0 && String::from_utf16_lossy(&buf[..n as usize]) == "카카오톡"
 }
 
-/// Whether a KakaoTalk.exe process runs (a process snapshot, no external program).
-fn kakao_running() -> bool {
+/// Whether a KakaoTalk.exe process runs.
+fn kakao_running() -> bool { !kakao_pids().is_empty() }
+
+/// The KakaoTalk.exe processes (a process snapshot, no external program).
+fn kakao_pids() -> Vec<u32> {
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
     };
+    let mut pids = Vec::new();
     unsafe {
         let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if snap == INVALID_HANDLE_VALUE { return false; }
+        if snap == INVALID_HANDLE_VALUE { return pids; }
         let mut e: PROCESSENTRY32W = std::mem::zeroed();
         e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-        let mut found = false;
         let mut ok = Process32FirstW(snap, &mut e) != 0;
-        while ok && !found {
+        while ok {
             let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
-            found = String::from_utf16_lossy(&e.szExeFile[..len]).eq_ignore_ascii_case("KakaoTalk.exe");
+            if String::from_utf16_lossy(&e.szExeFile[..len]).eq_ignore_ascii_case("KakaoTalk.exe") { pids.push(e.th32ProcessID); }
             ok = Process32NextW(snap, &mut e) != 0;
         }
         CloseHandle(snap);
-        found
     }
+    pids
+}
+
+/// The menu's "restart KakaoTalk": ends it (closing its window only hides it in the tray) and starts it again once
+/// it has exited, so it fetches the blank ad anew. In the background: waits up to 10 s for it to exit.
+pub fn restart_kakao() {
+    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE};
+    std::thread::spawn(|| {
+        for pid in kakao_pids() {
+            unsafe {
+                let p = OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, 0, pid);
+                if p.is_null() { continue; }
+                if TerminateProcess(p, 0) != 0 { WaitForSingleObject(p, 10_000); }
+                CloseHandle(p);
+            }
+        }
+        if let Some(k) = find_kakao() { let _ = Command::new(k).spawn(); }
+    });
 }
 
 /// When started by hand (after installing, or from the Start menu), also starts KakaoTalk unless it already runs.
