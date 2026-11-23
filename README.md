@@ -1,73 +1,59 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="site/kakaotalk-mac-ad-dark.png">
+    <img src="site/kakaotalk-mac-ad-light.png" width="360" alt="광고가 있는 카카오톡">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="site/kakaotalk-mac-dark.png">
+    <img src="site/kakaotalk-mac-light.png" width="360" alt="KakaoAdHide로 광고 칸을 비운 카카오톡">
+  </picture>
+</p>
+
 # KakaoAdHide
 
 카카오톡 PC(Windows, macOS)의 광고 배너를 비우는 작은 프로그램입니다.
 카카오톡이 광고를 받아 오는 요청을 이 컴퓨터 안에서 대신 받아, 광고 대신 **카카오톡 배경색만 칠한 빈 칸**을 돌려줍니다.
 
-**다운로드: [pandemoniummm.github.io/KakaoAdHide](https://pandemoniummm.github.io/KakaoAdHide/)**
+[![최신 버전](https://img.shields.io/github/v/release/pandemoniummm/KakaoAdHide?label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84)](../../releases/latest)
+[![빌드](https://github.com/pandemoniummm/KakaoAdHide/actions/workflows/build.yml/badge.svg?branch=main)](../../actions/workflows/build.yml)
+[![라이선스: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![Windows · macOS](https://img.shields.io/badge/Windows%20%C2%B7%20macOS-lightgrey)
+
+**[다운로드](https://pandemoniummm.github.io/KakaoAdHide/)** · Windows (64비트) · macOS 11 이상 (Apple silicon, Intel)
+
+[기능](#기능) · [설치](#설치) · [믿어도 되나요?](#믿어도-되나요) · [자주 묻는 질문](#자주-묻는-질문) · [업데이트](#업데이트) · [앞으로](#앞으로)
 
 > 비공식 프로젝트입니다. 카카오(Kakao Corp.)와 관련이 없습니다.
 
-## 특징
+## 기능
 
-- **카카오톡이 직접 그리는 빈 칸**: 창을 끌거나 크기를 바꾸거나 다른 모니터로 옮겨도 어긋나지 않습니다.
-- **카카오톡을 건드리지 않음**: 실행 파일 수정이나 코드 주입이 없습니다.
-- **광고 서버에 접속하지 않음**: 광고 노출·클릭 기록도 보내지 않습니다.
-- **가벼움**: 카카오톡이 켤 때와 하루 한 번 보내는 요청에만 답합니다.
-- **안전한 업데이트**: 새 버전이 나오면 알려 주고, 서명을 확인한 뒤에만 설치합니다.
-
-## 동작 방식과 보안
-
-처음 실행할 때 동의를 받은 뒤 한 번만 설정합니다.
-
-1. **인증서**: 이 컴퓨터에서 새로 만든 인증서를 신뢰하도록 등록합니다.
-   - 카카오톡 광고 주소 두 개(`serv.ds.kakao.com`, `display.ad.daum.net`)에만 쓸 수 있습니다.
-   - 다른 인증서를 발급할 수 없는 종류(CA 아님)입니다.
-   - 개인키는 이 컴퓨터를 떠나지 않습니다(현재 사용자만 읽을 수 있는 파일).
-
-   그래서 개인키가 새더라도 다른 사이트(은행, 메일 등)를 위조할 수는 없고, 카카오톡 광고 칸에 다른 내용을 띄우는 정도만 가능합니다.
-2. **hosts 파일**: 두 광고 주소를 이 컴퓨터(127.0.0.1)로 보내는 줄을 넣습니다. 관리자 권한이 필요합니다.
-3. **로컬 서버**: KakaoAdHide가 443 포트에서 **이 컴퓨터에서 온 연결만** 받아, 광고 요청에는 빈 광고를, 그 밖의 요청에는 빈 응답을 돌려줍니다.
-
-빈 광고에는 짧은 스크립트만 들어 있습니다(테스트로 확인).
-- Windows 카카오톡에 '광고 로드됨'을 알립니다.
-- 사이드바 폭에 맞춰 배경을 칠합니다.
-- 메뉴 버튼을 그립니다. 버튼을 누르면 **이 컴퓨터의 KakaoAdHide**에 메뉴를 열라는 신호를 보냅니다.
-- 카카오톡 창이 비활성일 때 버튼도 카카오톡 아이콘처럼 흐려지도록, **이 컴퓨터의 KakaoAdHide**와 연결 하나를 열어 두고 창 상태가 바뀔 때만 알림을 받습니다. macOS는 이 연결에 광고 칸 폭을 함께 보냅니다(카카오톡 메인 창을 알아보는 데 씀).
-- 신호와 연결에는 설치할 때 만든 무작위 값이 붙어서, 다른 웹 페이지가 메뉴를 띄우거나 연결할 수 없습니다.
-
-이 컴퓨터 밖으로는 어떤 요청도 보내지 않습니다.
-
-### 알아 두실 점
-
-- 같은 광고 주소를 쓰는 **웹사이트(다음 등)의 광고도 함께 안 보일 수 있습니다.**
-- KakaoAdHide가 꺼져 있으면 카카오톡 내장 배너가 뜰 뿐, 다른 인터넷 통신에는 영향이 없습니다.
-- Windows: 하단 배너 말고 따로 뜨는 광고 팝업(트레이 근처)은 아예 뜨지 않게 합니다.
-- 10분마다 광고 주소가 이 컴퓨터로 오는지 확인하고, 아니면 메뉴에 표시합니다(**설정하기**로 다시 적용).
-- 카카오톡이 광고 주소나 응답 형식을 바꾸면 내장 배너가 다시 보일 수 있습니다. 그럴 때는 카카오톡 버전과 함께 [이슈](../../issues)로 알려 주세요.
-
-# Windows
+| | |
+|---|---|
+| **카카오톡이 직접 그리는 빈 칸** | 창을 끌거나 크기를 바꾸거나 다른 모니터로 옮겨도 어긋나지 않습니다. |
+| **카카오톡을 건드리지 않음** | 실행 파일 수정이나 코드 주입이 없습니다. |
+| **광고 서버에 접속하지 않음** | 광고 노출·클릭 기록도 보내지 않습니다. |
+| **팝업 광고도 막음** | Windows에서 트레이 근처에 따로 뜨는 광고 팝업도 뜨지 않게 합니다. |
+| **빈 칸의 메뉴 버튼** | 사이드바 아래 버튼으로 메뉴를 엽니다. 카카오톡 아이콘처럼 창이 비활성이면 흐려집니다. |
+| **풀리면 알려 줌** | 다른 프로그램이 설정을 지우면 알림을 띄우고, [다시 설정]으로 바로 고칩니다. |
+| **가벼움** | 카카오톡이 켤 때와 하루 한 번 보내는 요청에만 답합니다. |
+| **안전한 업데이트** | 새 버전이 나오면 알려 주고, 서명을 확인한 뒤에만 설치합니다. |
 
 ## 설치
 
-1. [Releases](../../releases)에서 `KakaoAdHide-windows.exe`를 받아 실행합니다.
+### Windows
+
+1. [다운로드 페이지](https://pandemoniummm.github.io/KakaoAdHide/)나 [Releases](../../releases/latest)에서 `KakaoAdHide-windows.exe`를 받아 실행합니다.
    **"Windows의 PC 보호"** 창이 뜨면 **추가 정보 → 실행**을 누르세요. 코드 서명을 하지 않은 프로그램이라 뜨는 경고입니다.
 2. 설정 안내가 뜨면 **설정하기** → 인증서 설치 확인 창에서 **예** → 사용자 계정 컨트롤 창에서 **예**.
 3. 설치가 끝나면 KakaoAdHide가 카카오톡을 켭니다(이미 켜져 있으면 그대로).
 
 카카오톡 자체 자동 실행 설정은 건드리지 않습니다. 로그인할 때 카카오톡이 KakaoAdHide보다 먼저 켜지면, 몇 분 동안 내장 배너가 보였다가 빈 칸으로 바뀝니다.
 
-받은 파일이 Releases의 파일과 같은지는 함께 올린 `SHA256SUMS.txt`로 확인할 수 있습니다.
+**사용**: 카카오톡 빈 칸 왼쪽, 사이드바 아래의 **KakaoAdHide 버튼**을 누르면 메뉴가 열립니다(트레이 아이콘 메뉴와 같습니다).
+메뉴: 카카오톡 다시 시작, 업데이트 확인, 업데이트 자동 확인, KakaoAdHide 제거, 종료
 
-```powershell
-Get-FileHash .\KakaoAdHide-windows.exe -Algorithm SHA256
-```
-
-## 사용
-
-- 카카오톡 빈 칸 왼쪽, 사이드바 아래의 **KakaoAdHide 버튼**을 누르면 메뉴가 열립니다(트레이 아이콘 메뉴와 같습니다).
-- 메뉴: 업데이트 확인, 업데이트 자동 확인 끄기·켜기, 제거, 종료
-
-### 설치하면 바뀌는 것
+<details>
+<summary>설치하면 바뀌는 것</summary>
 
 | 항목 | 내용 |
 |---|---|
@@ -78,17 +64,18 @@ Get-FileHash .\KakaoAdHide-windows.exe -Algorithm SHA256
 | `HKCU\Software\KakaoAdHide` | 설정 |
 | 설정 > 앱 > 설치된 앱 | `KakaoAdHide` 항목 |
 
-## 제거
+</details>
 
-다음 중 하나를 고르세요. hosts 줄, 인증서, 설정을 모두 지우고 원래대로 되돌립니다.
+<details>
+<summary>제거, 명령줄</summary>
+
+다음 중 하나로 지웁니다. hosts 줄, 인증서, 설정을 모두 지우고 원래대로 되돌립니다.
 - **설정 > 앱 > 설치된 앱 > KakaoAdHide > 제거**
 - KakaoAdHide 메뉴의 **KakaoAdHide 제거…**
 - PowerShell:
   ```powershell
   & "$env:LOCALAPPDATA\KakaoAdHide\KakaoAdHide.exe" --uninstall
   ```
-
-## 명령줄
 
 | 명령 | 동작 |
 |---|---|
@@ -97,21 +84,22 @@ Get-FileHash .\KakaoAdHide-windows.exe -Algorithm SHA256
 | `KakaoAdHide.exe --update` | 지금 업데이트 확인(새 버전이 있으면 검증 후 설치) |
 | `--quiet` | 설치, 제거할 때 안내 창을 띄우지 않음 |
 
-# macOS
+</details>
 
-## 설치
+### macOS
 
-1. [Releases](../../releases)에서 `KakaoAdHide-macos.dmg`를 받아 열고, `KakaoAdHide`를 `Applications`로 끌어다 놓습니다.
+1. [다운로드 페이지](https://pandemoniummm.github.io/KakaoAdHide/)나 [Releases](../../releases/latest)에서 `KakaoAdHide-macos.dmg`를 받아 열고, `KakaoAdHide`를 `Applications`로 끌어다 놓습니다.
 2. 응용 프로그램 폴더에서 KakaoAdHide를 실행합니다.
    **"Apple은 'KakaoAdHide'에 악성 코드가 없음을 확인할 수 없습니다"** 창이 뜨면 **완료**를 누르고, **시스템 설정 > 개인정보 보호 및 보안** 아래쪽의 **그래도 열기**를 누른 뒤 다시 실행합니다. Apple 유료 개발자 서명(공증)을 하지 않은 앱이라 처음 한 번 뜨는 경고입니다.
 3. 설정 안내에서 **설정하기** → 인증서 신뢰 변경에 **Mac 로그인 암호** → hosts 변경에 **관리자 암호**.
-4. 메뉴 막대에 아이콘이 생깁니다. 메뉴에서 업데이트, 로그인 시 실행, 제거를 고를 수 있습니다.
 
-macOS 11 이상, Apple silicon과 Intel을 지원합니다.
+카카오톡이 KakaoAdHide보다 먼저 켜지면, 카카오톡이 광고를 다시 요청할 때까지 내장 배너가 보일 수 있습니다. 메뉴의 **카카오톡 다시 시작**을 누르면 바로 비워집니다.
 
-카카오톡이 KakaoAdHide보다 먼저 켜지면, 카카오톡이 광고를 다시 요청할 때까지 내장 배너가 보일 수 있습니다. 카카오톡을 다시 켜면 바로 비워집니다.
+**사용**: 카카오톡 빈 칸 왼쪽 버튼이나 메뉴 막대 아이콘으로 메뉴를 엽니다.
+메뉴: 카카오톡 다시 시작, 업데이트 확인, 업데이트 자동 확인, 로그인할 때 실행, KakaoAdHide 제거, 종료
 
-### 설치하면 바뀌는 것
+<details>
+<summary>설치하면 바뀌는 것, 제거</summary>
 
 | 항목 | 내용 |
 |---|---|
@@ -121,11 +109,48 @@ macOS 11 이상, Apple silicon과 Intel을 지원합니다.
 | `/etc/hosts` | `# KakaoAdHide begin` ~ `# KakaoAdHide end` 사이의 두 줄 |
 | `~/Library/Application Support/KakaoAdHide/` | 설정과 인증서 |
 
-## 제거
+제거: 메뉴 > **KakaoAdHide 제거…** (hosts 줄, 인증서, 로그인 항목, 설정을 지우고 앱을 휴지통으로 옮깁니다)
 
-메뉴 막대 아이콘 > **KakaoAdHide 제거…** (hosts 줄, 인증서, 로그인 항목, 설정을 지우고 앱을 휴지통으로 옮깁니다)
+</details>
 
-# 업데이트
+## 믿어도 되나요?
+
+처음 실행할 때 동의를 받은 뒤, 아래 세 가지를 한 번만 설정합니다.
+
+- **인증서**: 이 컴퓨터에서 새로 만든 인증서를 신뢰하도록 등록합니다.
+  - 카카오톡 광고 주소 두 개(`serv.ds.kakao.com`, `display.ad.daum.net`)에만 쓸 수 있고, 다른 인증서를 발급할 수 없는 종류(CA 아님)입니다.
+  - 개인키는 이 컴퓨터를 떠나지 않습니다(현재 사용자만 읽을 수 있는 파일).
+  - 그래서 개인키가 새더라도 은행·메일 같은 다른 사이트를 위조할 수는 없습니다. 카카오톡 광고 칸에 다른 내용을 띄우는 정도만 가능합니다.
+- **hosts 파일**: 두 광고 주소를 이 컴퓨터(127.0.0.1)로 보내는 줄을 넣습니다. 관리자 권한이 필요합니다.
+- **로컬 서버**: KakaoAdHide가 443 포트에서 **이 컴퓨터에서 온 연결만** 받아, 광고 요청에는 빈 광고를, 그 밖의 요청에는 빈 응답을 돌려줍니다.
+
+그 밖에:
+
+- **밖으로 보내는 것이 없음**: 이 컴퓨터 밖으로 보내는 요청은 업데이트 확인뿐입니다([업데이트](#업데이트)).
+- **빈 광고에는 짧은 스크립트만**: 광고 칸을 칠하고, 메뉴 버튼을 그리고, **이 컴퓨터의 KakaoAdHide**하고만 신호를 주고받습니다. 외부 요청이 없는지는 테스트로 확인합니다. 신호에는 설치할 때 만든 무작위 값이 붙어서, 다른 웹 페이지가 흉내 낼 수 없습니다.
+- **공개 소스**: 릴리스 파일은 GitHub Actions가 이 저장소의 소스로 만듭니다. 받은 파일이 Releases의 파일과 같은지는 함께 올린 `SHA256SUMS.txt`로 확인할 수 있습니다.
+  ```powershell
+  Get-FileHash .\KakaoAdHide-windows.exe -Algorithm SHA256
+  ```
+
+## 자주 묻는 질문
+
+**다음(Daum) 같은 웹사이트 광고도 사라지나요?**
+카카오 애드핏 광고(다음 등에서 쓰는 카카오 광고)는 같은 주소를 써서 함께 안 보입니다. 구글 광고처럼 다른 회사 광고는 그대로입니다. Chrome은 이때 "로컬 네트워크 액세스" 권한을 물을 수 있는데, 허용하지 않아도 됩니다.
+
+**KakaoAdHide를 끄면 어떻게 되나요?**
+카카오톡 내장 배너가 뜰 뿐, 다른 인터넷 통신에는 영향이 없습니다.
+
+**백신이 hosts 파일을 되돌렸어요.**
+10분 안에 "광고 차단이 풀렸습니다" 알림이 뜹니다. 알림이나 [**다시 설정**]을 누르면 관리자 권한을 묻고 다시 적용합니다.
+
+**광고가 다시 보여요.**
+먼저 메뉴의 **카카오톡 다시 시작**을 눌러 보세요. 그래도 보이면 카카오톡이 광고 주소나 응답 형식을 바꾼 것일 수 있습니다. 카카오톡 버전과 함께 [이슈](../../issues)로 알려 주세요.
+
+**왜 보안 경고가 뜨나요?**
+유료 코드 서명을 하지 않은 프로그램이라 Windows는 SmartScreen, macOS는 Gatekeeper 경고가 처음 한 번 뜹니다.
+
+## 업데이트
 
 - 실행 1분 뒤, 그 뒤로 하루 한 번 GitHub의 최신 릴리스를 확인합니다. 요청에는 `User-Agent: KakaoAdHide/<버전>` 말고 아무 정보도 담지 않습니다. GitHub에는 접속 IP가 남습니다.
 - 새 버전이 있으면 알려 줍니다. **업데이트를 고르기 전에는 아무것도 받지 않습니다.**
@@ -136,15 +161,25 @@ macOS 11 이상, Apple silicon과 Intel을 지원합니다.
   - (macOS) dmg 안 앱의 번들 ID·버전과 코드 서명
 - 자동 확인 끄기: 메뉴의 **업데이트 자동 확인**
 
-# 확인한 환경
+## 앞으로
+
+계획 중인 것입니다. 바뀔 수 있습니다.
+
+- **내 배너**: 빈 칸 대신 내가 고른 사진(반려동물, 가족 등)이나 색을 띄웁니다. 사진은 이 컴퓨터 안에서만 쓰고, 어디로도 보내지 않습니다.
+- **배너 펫**: 광고 칸에 사는 작은 동물을 키웁니다. 카카오톡을 쓰는 만큼 자라거나 반응합니다.
+- **macOS 다른 광고 자리 확인** ([#3](../../issues/3))
+
+원하는 기능은 [이슈](../../issues)로 알려 주세요.
+
+## 확인한 환경
 
 - Windows 11, 카카오톡 PC 26.10.0
 - macOS 27.2 (Apple silicon), 카카오톡 Mac 26.10.0
 
-# 개발
+## 개발
 
-빌드와 릴리스는 [docs/development.md](docs/development.md)를 보세요.
+빌드와 릴리스는 [docs/development.md](docs/development.md), 카카오톡이 광고를 받는 방식은 [docs/kakaotalk.md](docs/kakaotalk.md)를 보세요.
 
-# 면책
+## 면책
 
 이 프로그램은 있는 그대로 제공되며, 사용에 따른 책임은 사용자에게 있습니다. 자세한 내용은 [LICENSE](LICENSE)를 보세요.
