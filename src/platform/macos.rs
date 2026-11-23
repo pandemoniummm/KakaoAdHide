@@ -312,6 +312,24 @@ pub fn start_kakao(at_sign_in: bool) {
     let _ = Command::new("/usr/bin/open").args(["-b", KAKAO_BUNDLE_ID]).spawn();
 }
 
+/// The menu's "restart KakaoTalk": quits it as Cmd-Q would and starts it again once it has exited (or just starts
+/// it), so it fetches the blank ad anew. In the background: KakaoTalk may take a moment to quit.
+pub fn restart_kakao() {
+    use objc2_app_kit::NSRunningApplication;
+    use objc2_foundation::NSString;
+    let running = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(KAKAO_BUNDLE_ID));
+    let pids: Vec<i32> = running.iter().map(|a| { a.terminate(); a.processIdentifier() }).collect();
+    std::thread::spawn(move || {
+        extern "C" { fn kill(pid: i32, sig: i32) -> i32; }
+        // up to 15 s for it to exit (it may ask something first); then start it whatever happened
+        for _ in 0..60 {
+            if pids.iter().all(|&p| unsafe { kill(p, 0) } != 0) { break; }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        let _ = Command::new("/usr/bin/open").args(["-b", KAKAO_BUNDLE_ID]).spawn();
+    });
+}
+
 /// KakaoTalk's process id while it is the active app, 0 otherwise.
 static KAKAO_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 

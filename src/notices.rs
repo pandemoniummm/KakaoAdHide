@@ -112,6 +112,7 @@ pub mod menu {
     pub const CHECK: &str = "업데이트 확인";
     pub const AUTO_CHECK: &str = "업데이트 자동 확인";
     pub const LOGIN: &str = "로그인할 때 실행";
+    pub const RESTART_KAKAO: &str = "카카오톡 다시 시작";
     pub const UNINSTALL: &str = "KakaoAdHide 제거…";
     pub const QUIT: &str = "종료";
     pub fn update_to(version: &str) -> String { format!("{version}(으)로 업데이트") }

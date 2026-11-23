@@ -58,11 +58,12 @@ enum UserEvent {
 }
 
 #[derive(Clone, Copy)]
-enum Action { Setup, Check, Update, Changes, Skip, AutoCheck, Login, Uninstall, Quit }
+enum Action { Setup, RestartKakao, Check, Update, Changes, Skip, AutoCheck, Login, Uninstall, Quit }
 
 struct Items {
     _status: MenuItem,
     setup: MenuItem,
+    restart_kakao: MenuItem,
     update: MenuItem,
     changes: MenuItem,
     skip: MenuItem,
@@ -101,6 +102,8 @@ impl App {
         let status = MenuItem::new(self.status_text(), false, None);
         use notices::menu as m;
         let setup = MenuItem::new(m::SETUP, self.status != Status::Serving, None);
+        // macOS only for now: Windows would need to end another process (#12)
+        let restart_kakao = MenuItem::new(m::RESTART_KAKAO, true, None);
         let update = MenuItem::new(m::UPDATE, false, None);
         let changes = MenuItem::new(m::CHANGES, false, None);
         let skip = MenuItem::new(m::SKIP, false, None);
@@ -111,6 +114,7 @@ impl App {
         let quit = MenuItem::new(m::QUIT, true, None);
         let _ = menu.append_items(&[&header, &status]);
         if self.status != Status::Serving { let _ = menu.append(&setup); }
+        if cfg!(target_os = "macos") { let _ = menu.append(&restart_kakao); }
         let _ = menu.append(&PredefinedMenuItem::separator());
         if let Some(f) = &self.pending {
             update.set_text(m::update_to(&f.version));
@@ -124,7 +128,7 @@ impl App {
         let _ = menu.append(&auto_check);
         if cfg!(target_os = "macos") { let _ = menu.append(&login); }
         let _ = menu.append_items(&[&PredefinedMenuItem::separator(), &uninstall, &quit]);
-        self.items = Some(Items { _status: status, setup, update, changes, skip, check, auto_check, login, uninstall, quit });
+        self.items = Some(Items { _status: status, setup, restart_kakao, update, changes, skip, check, auto_check, login, uninstall, quit });
         menu
     }
 
@@ -307,7 +311,7 @@ impl App {
     fn action(&self, id: &MenuId) -> Option<Action> {
         let items = self.items.as_ref()?;
         [
-            (items.setup.id(), Action::Setup), (items.check.id(), Action::Check), (items.update.id(), Action::Update),
+            (items.setup.id(), Action::Setup), (items.restart_kakao.id(), Action::RestartKakao), (items.check.id(), Action::Check), (items.update.id(), Action::Update),
             (items.changes.id(), Action::Changes), (items.skip.id(), Action::Skip), (items.auto_check.id(), Action::AutoCheck),
             (items.login.id(), Action::Login), (items.uninstall.id(), Action::Uninstall), (items.quit.id(), Action::Quit),
         ].into_iter().find(|(i, _)| *i == id).map(|(_, a)| a)
@@ -324,6 +328,10 @@ impl App {
                     self.start(true);
                 }
                 self.refresh();
+            }
+            Some(Action::RestartKakao) => {
+                #[cfg(target_os = "macos")]
+                platform::restart_kakao();
             }
             Some(Action::Check) => self.check_updates(true),
             Some(Action::Update) => if let Some(f) = self.pending.clone() { return self.install(f) },
