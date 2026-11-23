@@ -6,9 +6,6 @@
 //!   feed-sign keygen <private-key-file>
 //!       New key pair: writes the private key (PKCS#8, base64) to the file and prints the public key for
 //!       src/keys.rs. The private key is never printed.
-//!   feed-sign release <feed.json>
-//!       Adds `signature_ed25519` over the feed's version and sha256. Checks the feed's RSA `signature` first
-//!       (tools/sign-release.ps1 writes it for copies before 2.5.1).
 //!   feed-sign units <feed.json> <windows|macos> [ids-file]
 //!       Puts the ad placement ids (default ad-units/<platform>.txt) in `units`, signed in `units_signature`.
 //!
@@ -21,7 +18,6 @@
 mod feed;
 #[path = "../../../src/keys.rs"]
 mod keys;
-mod legacy_rsa;
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
@@ -43,10 +39,9 @@ fn main() -> ExitCode {
     let r = match a.as_slice() {
         ["keygen", out] => keygen(Path::new(out)),
         ["new", package, version, tag, out] => new(Path::new(package), version, tag, Path::new(out), key_file.as_deref()),
-        ["release", feed] => release(Path::new(feed), key_file.as_deref()),
         ["units", feed, platform] => units(Path::new(feed), platform, None, key_file.as_deref()),
         ["units", feed, platform, ids] => units(Path::new(feed), platform, Some(Path::new(ids)), key_file.as_deref()),
-        _ => Err("usage: feed-sign keygen <file> | new <package> <version> <tag> <feed.json> | release <feed.json> | units <feed.json> <windows|macos> [ids-file] [--key-file <file>]".into()),
+        _ => Err("usage: feed-sign keygen <file> | new <package> <version> <tag> <feed.json> | units <feed.json> <windows|macos> [ids-file] [--key-file <file>]".into()),
     };
     match r {
         Ok(()) => ExitCode::SUCCESS,
@@ -93,10 +88,6 @@ fn write_feed(path: &Path, feed: &Map<String, Value>) -> R {
     std::fs::write(path, text + "\n").map_err(|e| format!("{}: {e}", path.display()))
 }
 
-fn field<'a>(feed: &'a Map<String, Value>, name: &str) -> Result<&'a str, String> {
-    feed.get(name).and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| format!("the feed has no {name}"))
-}
-
 fn new(package: &Path, version: &str, tag: &str, out: &Path, key_file: Option<&str>) -> R {
     if feed::Version::parse(version).is_none() { return Err(format!("not a version: {version}")); }
     if tag.is_empty() || !tag.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-') { return Err(format!("not a tag: {tag}")); }
@@ -115,22 +106,6 @@ fn new(package: &Path, version: &str, tag: &str, out: &Path, key_file: Option<&s
     f.insert("signature_ed25519".into(), sig.into());
     write_feed(out, &f)?;
     println!("wrote {} (version {version})", out.display());
-    Ok(())
-}
-
-fn release(path: &Path, key_file: Option<&str>) -> R {
-    let key = signing_key(key_file)?;
-    let mut f = read_feed(path)?;
-    let (version, sha) = (field(&f, "version")?.to_string(), field(&f, "sha256")?.to_ascii_lowercase());
-    let msg = feed::signed_message(&version, &sha);
-    if !legacy_rsa::valid(&msg, field(&f, "signature")?) {
-        return Err("the feed's RSA signature does not verify (copies before 2.5.1 could not update)".into());
-    }
-    let sig = B64.encode(key.sign(&msg).as_ref());
-    if !feed::signature_valid(&version, &sha, &sig, keys::PUBLIC_KEYS) { return Err("the new signature does not verify".into()); }
-    f.insert("signature_ed25519".into(), Value::String(sig));
-    write_feed(path, &f)?;
-    println!("signed {} (version {version})", path.display());
     Ok(())
 }
 

@@ -106,8 +106,7 @@ jobs:
         run: cargo test --locked
 
   # ---------------------------------------------------------------------------------------------------------
-  # On a v* tag: build both apps, sign both update feeds (SIGNING_KEY_ED25519, plus the RSA SIGNING_PRIVATE_KEY for
-  # copies before 2.5.1), check each feed
+  # On a v* tag: build both apps, sign both update feeds (SIGNING_KEY_ED25519), check each feed
   # with the app built for it, and upload everything as a DRAFT release. Nothing reaches users until the draft
   # is published (releases/latest/download/update-*.json and latest-*.json, which the apps read, ignore drafts).
 
@@ -168,7 +167,6 @@ jobs:
       - name: Sign
         shell: powershell
         env:
-          SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
           SIGNING_KEY_ED25519: ${{ secrets.SIGNING_KEY_ED25519 }}
         run: |
           if (-not $env:SIGNING_KEY_ED25519) { throw 'SIGNING_KEY_ED25519 secret is not set (docs/development.md)' }
@@ -180,29 +178,18 @@ jobs:
             # (ad-units/) signed on their own; units.yml re-signs them later
             FeedSign new $packages[$p] $env:VERSION $tag "dist/update-$p.json"
             FeedSign units "dist/update-$p.json" $p
-            # latest-*.json: the feed copies before 2.5.2 read. It stays the 2.5.2 release's (the bridge, kept in
-            # packaging/bridge/): they update to 2.5.2 first, then follow update-*.json. Only the bridge release
-            # itself makes one, signed with RSA too (1.0.0 - 2.5.0 check only that).
-            if (Test-Path "packaging/bridge/latest-$p.json") {
-              Copy-Item "packaging/bridge/latest-$p.json" "dist/latest-$p.json"
-            } else {
-              if (-not $env:SIGNING_PRIVATE_KEY) { throw 'SIGNING_PRIVATE_KEY secret (RSA) is not set: the bridge release needs it' }
-              ./tools/sign-release.ps1 -Exe $packages[$p] -Version $env:VERSION -Tag $tag -Out "dist/latest-$p.json"
-              FeedSign release "dist/latest-$p.json"
-              FeedSign units "dist/latest-$p.json" $p
-            }
+            # latest-*.json: the feed copies before 2.5.2 read, kept as the 2.5.2 release's (the bridge): they update
+            # to 2.5.2 first, then follow update-*.json. Carried unchanged; 2.5.2's exe and dmg never change.
+            if (-not (Test-Path "packaging/bridge/latest-$p.json")) { throw "packaging/bridge/latest-$p.json is missing" }
+            Copy-Item "packaging/bridge/latest-$p.json" "dist/latest-$p.json"
           }
 
       - name: Verify with the built exe
         shell: powershell
         run: |
-          $feeds = @('dist/update-windows.json')
-          # the bridge feed too, when this release is the bridge (later releases carry it unchanged)
-          if ((Get-Content dist/latest-windows.json -Raw | ConvertFrom-Json).version -eq $env:VERSION) { $feeds += 'dist/latest-windows.json' }
-          foreach ($f in $feeds) {
-            $p = Start-Process dist/KakaoAdHide-windows.exe -ArgumentList '--verify-feed', $f, 'dist/KakaoAdHide-windows.exe' -Wait -PassThru
-            if ($p.ExitCode -ne 0) { throw "$f does not verify against the keys in src/keys.rs (exit $($p.ExitCode))" }
-          }
+          # (latest-*.json is the 2.5.2 bridge, checked when 2.5.2 was released)
+          $p = Start-Process dist/KakaoAdHide-windows.exe -ArgumentList '--verify-feed', 'dist/update-windows.json', 'dist/KakaoAdHide-windows.exe' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "update-windows.json does not verify against the keys in src/keys.rs (exit $($p.ExitCode))" }
 
       - name: Checksums for both platforms
         shell: powershell
@@ -244,14 +231,9 @@ jobs:
           hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" dist/KakaoAdHide-macos.dmg
           ditto "$mnt/KakaoAdHide.app" "$RUNNER_TEMP/KakaoAdHide.app"
           hdiutil detach "$mnt"
-          version="$(plutil -extract CFBundleShortVersionString raw "$RUNNER_TEMP/KakaoAdHide.app/Contents/Info.plist")"
-          feeds=(dist/update-macos.json)
-          # the bridge feed too, when this release is the bridge (later releases carry it unchanged)
-          grep -q "\"version\": *\"$version\"" dist/latest-macos.json && feeds+=(dist/latest-macos.json)
-          for f in "${feeds[@]}"; do
-            "$RUNNER_TEMP/KakaoAdHide.app/Contents/MacOS/KakaoAdHide" --verify-feed "$f" dist/KakaoAdHide-macos.dmg \
-              || { echo "$f does not verify (exit $?): keys in src/keys.rs, certificate in src/platform/macos.rs"; exit 1; }
-          done
+          # (latest-macos.json is the 2.5.2 bridge, checked when 2.5.2 was released)
+          "$RUNNER_TEMP/KakaoAdHide.app/Contents/MacOS/KakaoAdHide" --verify-feed dist/update-macos.json dist/KakaoAdHide-macos.dmg \
+            || { echo "update-macos.json does not verify (exit $?): keys in src/keys.rs, certificate in src/platform/macos.rs"; exit 1; }
 
       - name: Draft release
         env:

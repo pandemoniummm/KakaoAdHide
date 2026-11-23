@@ -1,0 +1,13 @@
+{
+  "version": "2.5.2",
+  "url": "https://github.com/pandemoniummm/KakaoAdHide/releases/download/v2.5.2/KakaoAdHide-macos.dmg",
+  "size": 2609022,
+  "sha256": "ac946bfe33ffe70ac1c0ae3c8f7bfc2706f43e3a1d8e808679841c6d85e5999f",
+  "signature": "L4elK9tNYxcCfXJhvss0VsMrD/yJq8cPZR/UUVIw6dGDAlG6aKd9heUHQNUbxIFePQnxFhpTLoShyqAhJfjqqDD/i9Gm6pcCo4v1OEbyfgBLGiQ221GfLjnbrwf8Tbhe/Xijs2mLK8697IpC6kfXW6RSXVPuKDl9oN+UvvglTWzv+5LH1sNU2iQjKPb4QUnWXdwKnXPll1oRZb/rV9N60erx+17zs6MRDQz6wqvJrC2Xn8PlQCvop09E3SP/u8MmYm13yvNHqAvjHumbRoSClCxShPjhKdBZTsuc93NWOFY0p8NIkxWHG9cIFzAeyJ2rk4xaCw91wkKtuGVUlNNYarLLlWo1zEy9JVLGnaiU2HYUIuwd6T/gN8yodeP6uJLir0NoA+WQCODuomgq7uVKEKyetqGj4lCvh9CmZCQ0P6sX6t9ly7xmRF/eRiHgI6MBnqv6qsUf6BsgAO4GIK50BCfSyp5hbJyDepwjM+wFSUTmT9FDJ0mUR5yCaEMNPxik",
+  "page": "https://github.com/pandemoniummm/KakaoAdHide/releases/tag/v2.5.2",
+  "signature_ed25519": "Fz8HECse8/mcyBBS+gWADG9dAH8/t4w6PFCEvijbIh0KwD6MCvq8sZiBJf1WlvSAXNhCwKltzT4wDqZ7dr8KAQ==",
+  "units": [
+    "DAN-ECTpSP1g9fCcyreq"
+  ],
+  "units_signature": "t/oa3bcwu8iWoyYqGGbYkfpDyDY94mNP2vwnFBF+9pOLKtNNMQdK/OBid1XxmmkTB8NORIyT/ONmiMzqFnwjBQ=="
+}

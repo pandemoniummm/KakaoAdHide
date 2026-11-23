@@ -11,7 +11,8 @@ Rust 하나로 두 플랫폼을 만듭니다.
 | `src/` | 공통: 로컬 HTTPS 서버(`server.rs`), 빈 광고(`banner.rs`), 인증서(`certs.rs`), hosts(`hosts.rs`), 설정 단계(`setup.rs`), 업데이트(`feed.rs`, `updater.rs`), 트레이·메뉴 막대(`ui.rs`), 사용자에게 보이는 모든 문구(`notices.rs`) |
 | `src/platform/` | `windows.rs`(설치·레지스트리·UAC·인증서 저장소), `macos.rs`(앱 번들·키체인·LaunchAgent) |
 | `packaging/` | `windows/build.ps1`, `macos/build.sh`(앱 번들·서명·dmg), `macos/Info.plist` |
-| `tools/` | 업데이트 정보 서명(`feed-sign/`: Ed25519, `sign-release.ps1`: 2.5.0 이하용 RSA), macOS 코드 서명 인증서 |
+| `tools/` | 업데이트 정보 만들기·서명(`feed-sign/`, Ed25519), macOS 코드 서명 인증서 |
+| `packaging/bridge/` | 2.5.1 이하가 읽는 `latest-*.json`(2.5.2 징검다리, 고치지 않음) |
 | `assets/` | 아이콘 원본: 앱 아이콘(`icon.svg`), 선 아이콘(`icon-line.svg`, 사이드바 버튼과 트레이 모양) |
 | `tools/icon-gen/` | `icon.svg`에서 `packaging/windows/app.ico`, `packaging/macos/AppIcon.icns`, `assets/icon-256.png`을, `dmg-background.svg`에서 dmg 창 배경(`packaging/macos/dmg-background*.png`)을 만드는 도구 |
 | `ad-units/` | 빈 광고를 줄 하단 배너의 광고 자리 ID(플랫폼별). 앱에 들어가고 업데이트 정보에도 서명해 실음 |
@@ -95,7 +96,6 @@ Get-Content $HOME\.keys\signing-ed25519-primary.key -Raw | gh secret set SIGNING
 - Ed25519 키 두 개(주 키, 예비 키)를 저장소 밖에 만듭니다. 출력되는 공개키 두 개를 `src/keys.rs`에 넣습니다(개인키는 출력하지 않음).
 - 주 키의 개인키를 `SIGNING_KEY_ED25519` 시크릿으로 저장합니다(`gh` 로그인 필요).
 - 키를 바꿀 때는 새 공개키를 넣은 버전을 먼저 낸 뒤에 새 키로 서명합니다. 설치된 앱은 자기 안의 공개키만 믿습니다.
-- 징검다리 릴리스(2.5.2)의 RSA 서명에만 시크릿 `SIGNING_PRIVATE_KEY`(RSA, `~/.keys/signing-*-private.xml`)가 필요합니다([update-feed.md](update-feed.md#징검다리-252)).
 - **개인키 두 개를 반드시 백업하세요**(비밀번호 관리자, 암호화한 USB 등). GitHub 시크릿은 다시 꺼내 볼 수 없습니다.
   예비 키는 릴리스에 쓰지 않으니 백업한 뒤 PC에서 지워 두세요. 주 키를 잃어버리면 예비 키로 서명한 업데이트로 키를 바꿀 수 있습니다.
 - 바뀐 `src/keys.rs`(공개키만 들어 있음)를 커밋합니다.
@@ -131,7 +131,7 @@ tools/new-macos-signing-cert.sh --set-secret
    ```
 4. GitHub Actions가 두 플랫폼 빌드 → 업데이트 정보 서명 → 각 플랫폼 앱으로 서명 검증 → **초안(draft) 릴리스** 생성까지 합니다.
    올라가는 파일: `KakaoAdHide-windows.exe`, `update-windows.json`, `latest-windows.json`, `KakaoAdHide-macos.dmg`, `update-macos.json`, `latest-macos.json`, `SHA256SUMS.txt`
-   - `latest-*.json`은 2.5.1 이하가 읽는 징검다리입니다. `packaging/bridge/`에 있으면 그대로 올리고, 없으면(2.5.2 릴리스) RSA까지 서명해 새로 만듭니다([update-feed.md](update-feed.md#징검다리-252)).
+   - `latest-*.json`은 2.5.1 이하가 읽는 징검다리로, `packaging/bridge/`의 파일을 그대로 올립니다([update-feed.md](update-feed.md#징검다리-252)).
 5. 초안에 릴리스 노트를 쓰고 **Publish release**를 누르면, 그때부터 사용자에게 업데이트 알림이 갑니다.
 
 공개 전에 태그를 다시 붙여야 하면(CI 실패를 고친 뒤 등):

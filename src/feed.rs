@@ -1,6 +1,6 @@
 //! The update feed (update-windows.json / update-macos.json, from 2.5.2) and its verification.
 //!
-//! Copies before 2.5.2 read latest-<platform>.json instead. From 2.5.3 on, every release carries the 2.5.2 release's
+//! Copies before 2.5.2 read latest-<platform>.json instead. Every release after 2.5.2 carries the 2.5.2 release's
 //! latest-*.json unchanged (packaging/bridge/), so those copies first update to 2.5.2 and then follow this feed.
 //!
 //! See docs/update-feed.md:
@@ -9,7 +9,6 @@
 //!   - the feed's Ed25519 signature (`signature_ed25519`) over "KakaoAdHide\n<version>\n<sha256 hex>" (UTF-8)
 //!     must verify with one of the public keys in keys.rs.
 //!
-//! The feed's RSA `signature` is for copies before 2.5.1 (tools/feed-sign checks it); this app ignores it.
 
 use base64::Engine;
 use serde::Deserialize;
@@ -238,8 +237,8 @@ mod tests {
         let mut bom = vec![0xEF, 0xBB, 0xBF];
         bom.extend_from_slice(br#"{"version":"1.2.3","url":"u","size":1,"sha256":"a","signature_ed25519":"b"}"#);
         assert_eq!(Feed::parse(&bom).unwrap().version, "1.2.3");
-        // a feed with only the RSA signature (1.0.0 - 2.5.0) isn't one this app can check
-        assert_eq!(Feed::parse(include_bytes!("../tests/fixtures/v1.0.0-latest-windows.json")), Err(VerifyError::BadFeed));
+        // a feed without an Ed25519 signature (as before 2.5.1) isn't one this app can check
+        assert_eq!(Feed::parse(br#"{"version":"1.0.0","url":"u","size":1,"sha256":"a","signature":"b"}"#), Err(VerifyError::BadFeed));
     }
 
     #[test]

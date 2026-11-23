@@ -1,0 +1,13 @@
+{
+  "version": "2.5.2",
+  "url": "https://github.com/pandemoniummm/KakaoAdHide/releases/download/v2.5.2/KakaoAdHide-windows.exe",
+  "size": 2045440,
+  "sha256": "774b4a6fde5460024c81088c67e18e35764460fc7bf599c0086b3e6afe2b86a5",
+  "signature": "Chg9Rxssq/my7PlGli6CbDg8JRRunbDKowgsBextdaMa4dG4QlAseGZPzlgHRBXfL3b/acrubg8E4VY2dCeMWYMXaidz/04KNKbUWfcL8cilScKPlCyFg3ZaKEDzu52FCxMRtD2yDLdRmQMjn6bv0zxAIuzvfVN/iR9bRNwKBJDXogxv8F2VlRanGuTgfY5vqZAWqc9gyh2hOI4r55KNAXb+PGMVwx3mclplKRR6odFxtW4bfNSlWoQOyoOAqsFgiWbscMwA7tfV38MVwTseSPHr6IyLlSFJU1M/Gqz/X7zh4I3uC0iO9MxKOkQ5Zwu4dDqOMZC4MA6igweBx2RH4s7FCFK5HBhf76ZXOHu7Otesm2qjrjlPWI610Ao3fkXJ+gm996NZBhqkiuFj0Xkmd3hyg9YkpKCC7BkmtZ4IuPa0etssr2hd8pv8ztk7W6KiWsBaudMvOgKVHVxn7ZSgGDSbKzp0JVerwNaLcjBZeqZ3cunhXTWGR3pzTBEGX1Bt",
+  "page": "https://github.com/pandemoniummm/KakaoAdHide/releases/tag/v2.5.2",
+  "signature_ed25519": "E84/LGob8M1mxk/BmVR/YNecd6l0NaZMk2GghUE6lqBJHQy8tE/ZfVbL+L1oHELbPwMMIZrGaHAhnTfpIteHAw==",
+  "units": [
+    "DAN-FTsOAPU4yZ6oHLGy"
+  ],
+  "units_signature": "X+acOZ1ZyYgq0vd2pQHYZ8QdBjF8mNDt21SKWLI1h5sPwKTwqS/JQehCBnfULz6xmcyEi197JOzAfomwdYXlDg=="
+}
