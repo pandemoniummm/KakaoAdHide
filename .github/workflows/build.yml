@@ -111,10 +111,11 @@ jobs:
   # with the app built for it, and upload everything as a DRAFT release. Nothing reaches users until the draft
   # is published (releases/latest/download/latest-*.json, which the apps read, ignores drafts).
 
-  # The macOS app, signed with the self-signed release certificate (tools/new-macos-signing-cert.sh).
+  # The macOS app, signed with the self-signed release certificate (tools/new-macos-signing-cert.sh). Starts with
+  # the test jobs instead of after them (macOS runners can take many minutes to come); the signing job below
+  # waits for every test job.
   release-macos:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build-macos
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -142,7 +143,7 @@ jobs:
   # The Windows app, and the signing of both feeds (the key stays on this one job).
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, release-macos]
+    needs: [build, build-macos, test-macos-intel, audit, release-macos]
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
