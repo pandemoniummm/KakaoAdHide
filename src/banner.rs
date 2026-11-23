@@ -145,13 +145,9 @@ window.chrome.webview.addEventListener('message',\
 function(a){try{if(a.data.event.name==='ReadyToListen'){window.chrome.webview.postMessage(\
 {event:{name:'AdLoaded',data:{result:true}}})}}catch(e){}})}</script>";
 
-/// macOS: width of the ad slot as the real ad server reports it (Windows doesn't need it: #7).
-#[cfg(target_os = "macos")]
-const AD_WIDTH: u32 = 400;
-
-/// Where the ad's event and feedback links point: back at this local server (serv.ds.kakao.com resolves here),
-/// which answers them with 204. KakaoTalk for Windows rejects an ad without these fields and shows its fallback
-/// banner, so they are filled in the shape the real server uses, but nothing ever leaves the computer.
+/// Where the ad's event links point: back at this local server (serv.ds.kakao.com resolves here), which answers
+/// them with 204. KakaoTalk for Windows rejects an ad without them and shows its fallback banner, so they are filled
+/// in the shape the real server uses, but nothing ever leaves the computer.
 const LOCAL: &str = "https://serv.ds.kakao.com/ev/";
 
 /// The blank ad's logo asks this to open the app's menu (see server::MENU_PATH).
@@ -191,65 +187,26 @@ pub fn no_ad_json() -> String {
     serde_json::json!({ "status": "OK", "id": "00000000-0000-0000-0000-000000000000", "ads": [] }).to_string()
 }
 
-/// The /sdk/banner response. refreshInterval is a day: there is nothing to refresh (KakaoTalk asks again by itself;
-/// this only sets when).
-/// Windows: only what KakaoTalk for Windows 26.10 checks. Without the top-level `id`, `status` or the ad's `events`
-/// it shows its fallback banner (checked field by field, #7); `mimeType` and refreshInterval aren't checked but say
-/// what the content is and keep KakaoTalk from asking again sooner.
-#[cfg(not(target_os = "macos"))]
+/// The /sdk/banner response: only what KakaoTalk checks (checked field by field on the real KakaoTalk 26.10, #7).
+/// refreshInterval is a day: there is nothing to refresh (KakaoTalk asks again by itself; this only sets when).
+/// Windows: without the top-level `id`, `status` or the ad's `events` it shows its fallback banner; `mimeType` and
+/// refreshInterval aren't checked but say what the content is and keep KakaoTalk from asking again sooner.
+/// macOS: without `status`, `id`, the ad's `content`, `mimeType` or `type` it shows its fallback banner; `events`
+/// isn't checked there but stays (the same links as on Windows, all back at this server).
 pub fn response_json(menu: Option<&str>) -> String {
     let events: Vec<_> = ["viewable", "hide", "click", "rendered"]
         .iter()
         .map(|t| serde_json::json!({ "type": t, "url": format!("{LOCAL}{t}") }))
         .collect();
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+    let mut ad = serde_json::json!({ "content": html(menu), "mimeType": "text/html", "events": events });
+    #[cfg(target_os = "macos")]
+    { ad["type"] = "banner".into(); }
     serde_json::json!({
         "status": "OK",
         "id": "00000000-0000-0000-0000-000000000000",
-        "ads": [{ "content": html(menu), "mimeType": "text/html", "events": events }],
+        "ads": [ad],
         "options": { "ext": { "refreshInterval": "86400" } },
-    })
-    .to_string()
-}
-
-/// macOS: the field set of a real ad (not yet narrowed down on KakaoTalk for Mac, #7).
-#[cfg(target_os = "macos")]
-pub fn response_json(menu: Option<&str>) -> String {
-    let events: Vec<_> = ["viewable", "hide", "click", "rendered"]
-        .iter()
-        .map(|t| serde_json::json!({ "type": t, "url": format!("{LOCAL}{t}") }))
-        .collect();
-    serde_json::json!({
-        "status": "OK",
-        "id": "00000000-0000-0000-0000-000000000000",
-        "ads": [{
-            "content": html(menu),
-            "mimeType": "text/html",
-            "width": AD_WIDTH,
-            "height": 100,
-            "events": events,
-            "feedback": {
-                "feedbacklinks": [format!("{LOCAL}fb")],
-                "optoutpage": format!("{LOCAL}optout"),
-                "reportpage": format!("{LOCAL}report"),
-            },
-            "dspId": "MOMENT",
-            "bidId": "00000000000000000000000000000000",
-            "etxId": "MOMENT:x",
-            "cid": "1",
-            "crid": "1",
-            "adid": "1",
-            "type": "banner",
-        }],
-        "options": {
-            "ext": {
-                "forceRefreshTime": "1895395637",
-                "replayIntervalKey": "AD_1",
-                "guaranteed": "N",
-                "replayInterval": "1200",
-                "refreshInterval": "86400",
-            },
-            "allowFpc": "N",
-        },
     })
     .to_string()
 }
@@ -267,13 +224,10 @@ mod tests {
         // KakaoTalk shows its fallback banner without these
         assert!(v["id"].is_string() && ad["content"].is_string());
         // every link the ad carries points back at the local server
-        let mut links: Vec<String> = ad["events"].as_array().unwrap().iter().map(|e| e["url"].as_str().unwrap().to_string()).collect();
+        let links: Vec<String> = ad["events"].as_array().unwrap().iter().map(|e| e["url"].as_str().unwrap().to_string()).collect();
         assert_eq!(links.len(), 4);
-        if cfg!(target_os = "macos") {
-            links.extend(ad["feedback"]["feedbacklinks"].as_array().unwrap().iter().map(|u| u.as_str().unwrap().to_string()));
-            links.extend(["optoutpage", "reportpage"].iter().map(|k| ad["feedback"][*k].as_str().unwrap().to_string()));
-            assert_eq!(links.len(), 7);
-        }
+        // macOS: KakaoTalk shows its fallback banner without the ad's type
+        assert_eq!(ad["type"].as_str(), cfg!(target_os = "macos").then_some("banner"));
         assert!(links.iter().all(|u| u.starts_with(LOCAL)), "{links:?}");
         let html = ad["content"].as_str().unwrap();
         assert!(html.contains(LIGHT_SIDEBAR) && html.contains(&format!("{SIDEBAR_WIDTH}px")));

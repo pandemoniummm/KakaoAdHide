@@ -51,7 +51,7 @@ KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. h
   pkill -f '/Applications/KakaoAdHide.app/Contents/MacOS/'; rm -rf /Applications/KakaoAdHide.app
   ditto target/KakaoAdHide.app /Applications/KakaoAdHide.app && open /Applications/KakaoAdHide.app
   ```
-- 카카오톡 번들 ID: `com.kakao.KakaoTalkMac`. 비활성 감지는 NSWorkspace 활성 앱 알림이라, 카카오톡 채팅방 창이 앞일 때(카카오톡은 아이콘을 흐리게 함)는 구별하지 못합니다.
+- 카카오톡 번들 ID: `com.kakao.KakaoTalkMac`. 비활성 감지는 NSWorkspace 활성 앱 알림과, 카카오톡이 앞일 때 창 목록(메인 창 = 너비가 광고 칸과 같은 창)으로 합니다. 카카오톡 구조는 [docs/kakaotalk.md](docs/kakaotalk.md).
 - 번들 밖에서 띄운 rfd 대화상자는 UserNotificationCenter 창으로 남을 수 있습니다(`killall UserNotificationCenter`).
 - Intel Mac은 CI(`test-macos-intel`)로만 테스트합니다.
 

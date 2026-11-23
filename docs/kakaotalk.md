@@ -7,7 +7,7 @@
 ## 광고 요청
 
 - 광고 서버 주소는 `serv.ds.kakao.com`과 `display.ad.daum.net`입니다. KakaoAdHide는 hosts에서 두 주소를 127.0.0.1로 보냅니다. 실제 요청은 `serv.ds.kakao.com`으로만 왔습니다.
-- 광고 목록 요청: `GET /sdk/banner?…`. 쿼리 값은 다음과 같습니다(Windows).
+- 광고 목록 요청: `GET /sdk/banner?…`. 쿼리 값은 다음과 같습니다(Windows. macOS는 아래 표 다음에 적음).
 
   | 값 | 예 | 뜻 |
   |---|---|---|
@@ -19,6 +19,7 @@
   | `appver` | `26.10.0.5364` | 카카오톡 버전 |
   | `accid` | (숫자) | 카카오 계정 번호. 로그나 이슈에 남기지 않습니다 |
 
+- macOS의 쿼리 값은 `id`, `appid`(`com.kakao.KakaoTalkMac`), `sdktype`·`sdkver`(`pcmacapp`, `1.0.5`), `os`·`osver`(`macOS`, 버전), `appver`, `accid`입니다. `cnt`는 없습니다.
 - **자리를 구별하는 값은 `id`뿐입니다.** 하단 배너와 팝업 요청은 `id`만 다르고 나머지 값은 모두 같습니다. 크기나 템플릿 같은 값은 없습니다.
 - 광고를 띄운 뒤 `/ev/rendered`, `/ev/viewable` 같은 이벤트 주소를 부릅니다. 이 주소는 응답의 `events`에서 옵니다.
 
@@ -37,11 +38,18 @@ ID 목록은 `ad-units/<플랫폼>.txt`에 있습니다. 앱에 들어가고, �
 광고 목록은 JSON으로 돌려줍니다(`Content-Type: application/json`).
 
 - **빈 목록(`ads: []`)**: 하단 배너에 주면 카카오톡이 내장 배너로 바꿉니다. 팝업에 주면 팝업이 뜨지 않습니다.
-- **하단 배너에 꼭 필요한 필드 (Windows)**: 필드를 하나씩 빼 보며 확인했습니다(#7).
-  - `status`, 맨 위 `id`, 광고의 `content`(HTML)와 `events`. 하나라도 없으면 내장 배너가 뜹니다.
-  - 광고의 `mimeType`, `options.ext.refreshInterval`은 없어도 뜨지만 남겨 둡니다. 앞의 것은 내용 형식을 밝히고, 뒤의 것은 다시 요청하는 간격을 정합니다(빼면 간격이 바뀔 수 있음).
-  - 나머지(`feedback`, `dspId`, `bidId`, `etxId`, `cid`, `crid`, `adid`, `type`, `width`, `height`, 다른 `options`)는 확인하지 않습니다.
-- macOS 응답은 아직 실제 광고의 필드를 모두 담고 있습니다. Mac에서 같은 방법으로 확인하기 전까지 그대로 둡니다.
+- **하단 배너에 꼭 필요한 필드**: 필드를 하나씩 빼고 카카오톡을 다시 켜 보며 확인했습니다(#7). 하나라도 없으면 내장 배너가 뜹니다.
+
+  | 필드 | Windows | macOS |
+  |---|---|---|
+  | `status`, 맨 위 `id`, 광고의 `content`(HTML) | 필요 | 필요 |
+  | 광고의 `events` | 필요 | 없어도 됨 |
+  | 광고의 `mimeType` | 없어도 됨 | 필요 |
+  | 광고의 `type`(`banner`) | 없어도 됨(보내지 않음) | 필요 |
+  | `options.ext.refreshInterval` | 없어도 됨 | 없어도 됨 |
+
+  - KakaoAdHide는 필요한 필드에 더해 `events`, `mimeType`, `refreshInterval`을 두 플랫폼 모두 보냅니다. `refreshInterval`은 다시 요청하는 간격을 정하므로 빼면 간격이 바뀔 수 있습니다. `type`은 macOS에만 보냅니다(Windows 응답은 확인한 그대로 둠).
+  - 나머지(`feedback`, `dspId`, `bidId`, `etxId`, `cid`, `crid`, `adid`, `width`, `height`, 다른 `options`)는 두 플랫폼 모두 확인하지 않습니다.
 
 ## 광고 웹뷰 (Windows)
 
@@ -56,3 +64,13 @@ ID 목록은 `ad-units/<플랫폼>.txt`에 있습니다. 앱에 들어가고, �
 - 사이드바 아이콘은 메인 창 자체가 포그라운드가 아니면 흐려집니다. 채팅방 창이 앞이거나, 광고 칸을 눌렀거나, 다른 앱이 앞인 경우입니다.
 - 창을 닫으면 트레이로 숨기만 합니다. 다시 시작하려면 프로세스를 끝내야 합니다.
 - 카카오톡을 다시 켜야 새 광고 페이지를 받습니다. 우리 앱만 다시 켜면 이전 페이지가 남습니다.
+
+## 광고 웹뷰와 창 (macOS)
+
+- 시스템 다크 모드를 따릅니다. 광고 페이지도 `prefers-color-scheme`로 다크를 받습니다.
+- 광고 페이지가 `AdLoaded`로 답하지 않아도 내용이 그대로 뜹니다(Windows와 다름).
+- 광고 페이지에서는 창 활성 상태를 알 수 없습니다. `focus`/`blur` 이벤트가 오지 않고, `screenX`·`outerWidth`는 0입니다.
+- 메인 창은 레이어 0의 카카오톡 창 중 너비가 광고 칸 너비(`innerWidth`)와 같은 창입니다. 메인 창을 닫았다 다시 열면 창 번호가 바뀌지만 광고 페이지는 다시 불러오지 않습니다.
+- 사이드바 아이콘은 메인 창이 앞이 아니면 흐려집니다. 채팅방·설정 창이 앞이거나 다른 앱이 앞인 경우입니다.
+- 창을 닫아도 앱은 켜져 있습니다. 새 광고 페이지를 받으려면 앱을 끝내고 다시 켭니다(`open -b`로 켜면 메인 창이 바로 뜨지 않을 수 있음).
+
