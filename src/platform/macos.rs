@@ -300,6 +300,18 @@ pub fn verify_package(feed: &Feed, dmg: &Path) -> Result<(), VerifyError> {
 
 const KAKAO_BUNDLE_ID: &str = "com.kakao.KakaoTalkMac";
 
+/// When started by hand (after installing, or from Applications), also starts KakaoTalk unless it already runs,
+/// so it fetches the blank ad right away. At login KakaoTalk starts (or not) by its own setting.
+pub fn start_kakao(at_sign_in: bool) {
+    use objc2_app_kit::NSRunningApplication;
+    use objc2_foundation::NSString;
+    if at_sign_in { return; }
+    let running = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(KAKAO_BUNDLE_ID));
+    if running.count() > 0 { return; }
+    // nothing happens if KakaoTalk isn't installed
+    let _ = Command::new("/usr/bin/open").args(["-b", KAKAO_BUNDLE_ID]).spawn();
+}
+
 /// Follows which app is active (NSWorkspace's activation notification, nothing polled) and tells the server
 /// whether it is KakaoTalk, whose sidebar icons dim while another app is in front. Call on the main thread.
 pub fn watch_kakao_active() {

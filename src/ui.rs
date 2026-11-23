@@ -194,16 +194,16 @@ impl App {
 // ---------------------------------------------------------------- event handlers (true: exit)
 
 impl App {
-    /// First event: setup and server, KakaoTalk (Windows, started by hand), the tray icon, the blank ad's menu.
+    /// First event: setup and server, KakaoTalk (when started by hand), the tray icon, the blank ad's menu.
     fn init(&mut self, at_sign_in: bool, target: &EventLoopWindowTarget<UserEvent>) {
         platform::first_run();
         #[cfg(windows)]
         platform::register_notifications();
         let updated_from = updater::note_version();
         self.start(true);
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         platform::start_kakao(at_sign_in);
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let _ = at_sign_in;
         #[cfg(not(any(windows, target_os = "macos")))]
         let _ = target;
