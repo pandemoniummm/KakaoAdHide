@@ -16,6 +16,7 @@ Rust 하나로 두 플랫폼을 만듭니다.
 | `tools/icon-gen/` | `icon.svg`에서 `packaging/windows/app.ico`, `packaging/macos/AppIcon.icns`, `assets/icon-256.png`을, `dmg-background.svg`에서 dmg 창 배경(`packaging/macos/dmg-background*.png`)을 만드는 도구 |
 | `ad-units/` | 빈 광고를 줄 하단 배너의 광고 자리 ID(플랫폼별). 앱에 들어가고 업데이트 정보에도 서명해 실음 |
 | `docs/update-feed.md` | 업데이트 정보 형식과 서명 |
+| `site/` | 소개·다운로드 페이지(GitHub Pages, `.github/workflows/pages.yml`이 main에서 배포) |
 | `docs/kakaotalk.md` | 카카오톡의 광고 요청·응답·창 구조(실측) |
 | `VERSION` | 두 플랫폼 공통 버전 (`Cargo.toml`의 `version`과 같게) |
 
@@ -63,6 +64,8 @@ Rust 하나로 두 플랫폼을 만듭니다.
 ```bash
 cargo run --release --manifest-path tools/icon-gen/Cargo.toml
 ```
+
+소개 페이지(`site/`)는 `icon.svg`와 `icon-256.png` 사본을 씁니다. 아이콘을 바꾸면 `site/`에도 복사합니다.
 
 사이드바 버튼(`banner.rs`)과 트레이 아이콘(`ui.rs`의 `icon_rgba`)은 `assets/icon-line.svg`와 같은 모양을 코드로 그립니다. 모양을 바꾸면 셋을 함께 고칩니다.
 
