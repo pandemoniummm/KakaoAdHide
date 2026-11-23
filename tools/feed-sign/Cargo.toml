@@ -1,0 +1,16 @@
+[package]
+name = "feed-sign"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Signs KakaoAdHide's update feeds with Ed25519 and makes signing keys. Not part of the app."
+
+# its own workspace: not built with the app
+[workspace]
+
+[dependencies]
+# the same crates (and src/feed.rs itself) as the app, so what this signs is what the app checks
+ring = "0.17"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }

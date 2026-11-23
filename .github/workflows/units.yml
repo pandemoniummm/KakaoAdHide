@@ -3,7 +3,8 @@ name: units
 # Puts the ad placement ids in ad-units/ (main) into the latest release's update feeds, signed, without a new
 # release: for when KakaoTalk changes the bottom banner's id (#10). Run by hand (Actions → units → Run workflow)
 # after the new id is in ad-units/<platform>.txt on main. The apps pick the list up at their next update check.
-# The feeds' other fields and their signature stay as they are.
+# The feeds' other fields and their signatures stay as they are. Copies before 2.5.1 ignore the list (it is signed
+# with Ed25519 now).
 
 on:
   workflow_dispatch:
@@ -21,15 +22,17 @@ jobs:
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-          SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
+          SIGNING_KEY_ED25519: ${{ secrets.SIGNING_KEY_ED25519 }}
         run: |
-          if (-not $env:SIGNING_PRIVATE_KEY) { throw 'SIGNING_PRIVATE_KEY secret is not set' }
+          if (-not $env:SIGNING_KEY_ED25519) { throw 'SIGNING_KEY_ED25519 secret is not set' }
           $tag = gh release view --repo "${{ github.repository }}" --json tagName -q .tagName
           if (-not $tag) { throw 'no published release' }
           New-Item -ItemType Directory -Force dist | Out-Null
           gh release download $tag --repo "${{ github.repository }}" -D dist -p latest-windows.json -p latest-macos.json
-          ./tools/sign-units.ps1 -Feed dist/latest-windows.json -Platform windows
-          ./tools/sign-units.ps1 -Feed dist/latest-macos.json -Platform macos
+          foreach ($p in 'windows', 'macos') {
+            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units "dist/latest-$p.json" $p
+            if ($LASTEXITCODE -ne 0) { throw "feed-sign units $p failed" }
+          }
           Get-Content dist/latest-windows.json, dist/latest-macos.json | Select-String 'version|DAN-'
           gh release upload $tag --repo "${{ github.repository }}" --clobber dist/latest-windows.json dist/latest-macos.json
           "updated the feeds of $tag"

@@ -80,7 +80,8 @@ jobs:
         run: cargo test --locked
 
   # ---------------------------------------------------------------------------------------------------------
-  # On a v* tag: build both apps, sign both update feeds with the SIGNING_PRIVATE_KEY secret, check each feed
+  # On a v* tag: build both apps, sign both update feeds (SIGNING_KEY_ED25519, plus the RSA SIGNING_PRIVATE_KEY for
+  # copies before 2.5.1), check each feed
   # with the app built for it, and upload everything as a DRAFT release. Nothing reaches users until the draft
   # is published (releases/latest/download/latest-*.json, which the apps read, ignores drafts).
 
@@ -139,13 +140,21 @@ jobs:
         shell: powershell
         env:
           SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
+          SIGNING_KEY_ED25519: ${{ secrets.SIGNING_KEY_ED25519 }}
         run: |
-          if (-not $env:SIGNING_PRIVATE_KEY) { throw 'SIGNING_PRIVATE_KEY secret is not set (tools/new-signing-keys.ps1 -SetSecret)' }
+          if (-not $env:SIGNING_PRIVATE_KEY) { throw 'SIGNING_PRIVATE_KEY secret (RSA) is not set' }
+          if (-not $env:SIGNING_KEY_ED25519) { throw 'SIGNING_KEY_ED25519 secret is not set (docs/development.md)' }
+          # RSA "signature": what copies before 2.5.1 check (drop with tools/feed-sign/src/legacy_rsa.rs)
           ./tools/sign-release.ps1 -Exe dist/KakaoAdHide-windows.exe -Version $env:VERSION -Tag "${{ github.ref_name }}"
           ./tools/sign-release.ps1 -Exe dist/KakaoAdHide-macos.dmg -Version $env:VERSION -Tag "${{ github.ref_name }}" -Out dist/latest-macos.json
-          # the bottom banner's ad placement ids (ad-units/), signed on their own; units.yml re-signs them later
-          ./tools/sign-units.ps1 -Feed dist/latest-windows.json -Platform windows
-          ./tools/sign-units.ps1 -Feed dist/latest-macos.json -Platform macos
+          # Ed25519 "signature_ed25519", and the bottom banner's ad placement ids (ad-units/), signed on their own;
+          # units.yml re-signs them later
+          foreach ($p in 'windows', 'macos') {
+            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- release "dist/latest-$p.json"
+            if ($LASTEXITCODE -ne 0) { throw "feed-sign release $p failed" }
+            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units "dist/latest-$p.json" $p
+            if ($LASTEXITCODE -ne 0) { throw "feed-sign units $p failed" }
+          }
 
       - name: Verify with the built exe
         shell: powershell

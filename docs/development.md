@@ -11,7 +11,7 @@ Rust 하나로 두 플랫폼을 만듭니다.
 | `src/` | 공통: 로컬 HTTPS 서버(`server.rs`), 빈 광고(`banner.rs`), 인증서(`certs.rs`), hosts(`hosts.rs`), 설정 단계(`setup.rs`), 업데이트(`feed.rs`, `updater.rs`), 트레이·메뉴 막대(`ui.rs`), 사용자에게 보이는 모든 문구(`notices.rs`) |
 | `src/platform/` | `windows.rs`(설치·레지스트리·UAC·인증서 저장소), `macos.rs`(앱 번들·키체인·LaunchAgent) |
 | `packaging/` | `windows/build.ps1`, `macos/build.sh`(앱 번들·서명·dmg), `macos/Info.plist` |
-| `tools/` | 업데이트 서명 키, 릴리스 서명, macOS 코드 서명 인증서 |
+| `tools/` | 업데이트 정보 서명(`feed-sign/`: Ed25519, `sign-release.ps1`: 2.5.0 이하용 RSA), macOS 코드 서명 인증서 |
 | `assets/` | 아이콘 원본: 앱 아이콘(`icon.svg`), 선 아이콘(`icon-line.svg`, 사이드바 버튼과 트레이 모양) |
 | `tools/icon-gen/` | `icon.svg`에서 `packaging/windows/app.ico`, `packaging/macos/AppIcon.icns`, `assets/icon-256.png`을, `dmg-background.svg`에서 dmg 창 배경(`packaging/macos/dmg-background*.png`)을 만드는 도구 |
 | `ad-units/` | 빈 광고를 줄 하단 배너의 광고 자리 ID(플랫폼별). 앱에 들어가고 업데이트 정보에도 서명해 실음 |
@@ -87,11 +87,15 @@ macOS에서 그냥 빌드하면 ad-hoc 서명이라 릴리스 앱과 서로 업�
 ### 처음 한 번: 업데이트 서명 키
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\new-signing-keys.ps1 -SetSecret
+cargo run --release --manifest-path tools/feed-sign/Cargo.toml -- keygen $HOME\.keys\signing-ed25519-primary.key
+cargo run --release --manifest-path tools/feed-sign/Cargo.toml -- keygen $HOME\.keys\signing-ed25519-backup.key
+Get-Content $HOME\.keys\signing-ed25519-primary.key -Raw | gh secret set SIGNING_KEY_ED25519
 ```
 
-- RSA-3072 키 두 쌍(주 키, 예비 키)을 저장소 밖(`%USERPROFILE%\.keys`)에 만듭니다. 공개키는 `src/keys.rs`에 들어갑니다.
-- `-SetSecret`을 붙이면 주 키의 개인키를 `SIGNING_PRIVATE_KEY` 시크릿으로 저장합니다(`gh` 로그인 필요).
+- Ed25519 키 두 개(주 키, 예비 키)를 저장소 밖에 만듭니다. 출력되는 공개키 두 개를 `src/keys.rs`에 넣습니다(개인키는 출력하지 않음).
+- 주 키의 개인키를 `SIGNING_KEY_ED25519` 시크릿으로 저장합니다(`gh` 로그인 필요).
+- 키를 바꿀 때는 새 공개키를 넣은 버전을 먼저 낸 뒤에 새 키로 서명합니다. 설치된 앱은 자기 안의 공개키만 믿습니다.
+- 2.5.0 이하용 RSA 서명에는 시크릿 `SIGNING_PRIVATE_KEY`(RSA, `~/.keys/signing-*-private.xml`)도 필요합니다([update-feed.md](update-feed.md#옛-rsa-서명)).
 - **개인키 두 개를 반드시 백업하세요**(비밀번호 관리자, 암호화한 USB 등). GitHub 시크릿은 다시 꺼내 볼 수 없습니다.
   예비 키는 릴리스에 쓰지 않으니 백업한 뒤 PC에서 지워 두세요. 주 키를 잃어버리면 예비 키로 서명한 업데이트로 키를 바꿀 수 있습니다.
 - 바뀐 `src/keys.rs`(공개키만 들어 있음)를 커밋합니다.

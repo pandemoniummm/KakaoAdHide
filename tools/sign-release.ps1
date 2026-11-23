@@ -1,6 +1,8 @@
 <#
 .SYNOPSIS
-  Signs a release and writes latest-windows.json, the update feed the app reads.
+  Writes latest-windows.json (or -Out) with the RSA "signature" that KakaoAdHide 1.0.0 - 2.5.0 check.
+  tools/feed-sign then adds the Ed25519 "signature_ed25519" that 2.5.1 and later check (docs/update-feed.md).
+  Drop the RSA part once no copy older than 2.5.1 is left.
 
 .DESCRIPTION
   The signature covers "KakaoAdHide\n<version>\n<sha256 of the exe>", so a signed file can't be passed off as

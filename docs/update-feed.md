@@ -1,6 +1,6 @@
 # 업데이트 정보 파일 형식 (Windows · macOS 공통)
 
-두 플랫폼은 같은 형식, 같은 서명 방식, 같은 공개키로 업데이트를 확인합니다. 릴리스 워크플로의 서명 단계(`tools/sign-release.ps1`) 하나가 두 파일을 모두 만듭니다.
+두 플랫폼은 같은 형식, 같은 서명 방식, 같은 공개키로 업데이트를 확인합니다. 릴리스 워크플로의 서명 단계(`tools/sign-release.ps1`, `tools/feed-sign`) 하나가 두 파일을 모두 만듭니다.
 
 | 플랫폼 | 업데이트 정보 | 받는 파일 | 확인 코드 |
 |---|---|---|---|
@@ -9,7 +9,7 @@
 
 앱은 `https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/<업데이트 정보>`를 읽습니다. 이 주소는 공개된 최신 릴리스만 가리키고, 초안은 가리키지 않습니다.
 
-> 1.0.0 사용자 호환: `latest-windows.json`의 이름·형식, 서명 형식, 공개키는 바꾸면 안 됩니다.
+> 옛 버전 호환: `latest-windows.json`의 이름은 1.0.0부터 그대로입니다. 2.5.0 이하는 RSA `signature`만 확인하므로, 그 버전이 남아 있는 동안 CI가 RSA 서명도 함께 붙입니다([아래](#옛-rsa-서명)).
 
 ## JSON
 
@@ -19,7 +19,8 @@
   "url":       "https://github.com/pandemoniummm/KakaoAdHide/releases/download/v1.1.0/KakaoAdHide-macos.dmg",
   "size":      1234567,
   "sha256":    "<받는 파일의 SHA-256, 16진수 소문자>",
-  "signature": "<base64>",
+  "signature": "<base64, RSA: 2.5.0 이하용>",
+  "signature_ed25519": "<base64>",
   "page":      "https://github.com/pandemoniummm/KakaoAdHide/releases/tag/v1.1.0",
   "units":     ["DAN-FTsOAPU4yZ6oHLGy"],
   "units_signature": "<base64>"
@@ -30,18 +31,27 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 
 ## 서명
 
-- 알고리즘: RSA-3072, PKCS#1 v1.5, SHA-256
+- 필드: `signature_ed25519` (2.5.1부터)
+- 알고리즘: Ed25519
 - 서명 대상: `"KakaoAdHide\n" + version + "\n" + sha256` (UTF-8, sha256은 16진수 소문자)
 - 버전과 파일 해시를 함께 서명하므로, 옛 릴리스 파일을 새 버전인 척 내밀어 되돌리는(다운그레이드) 것을 막습니다.
-- 공개키 2개(주 키, 예비 키) 중 하나만 맞으면 통과합니다. 키는 `src/keys.rs`에 있고(KakaoAdHide 1.0.0과 같은 키), 테스트(`published_feed_verifies`)가 공개된 v1.0.0 업데이트 정보의 실제 서명을 이 키로 검증합니다.
-- 개인키: 주 키는 GitHub Secret `SIGNING_PRIVATE_KEY`(CI가 서명), 예비 키는 오프라인 보관. `tools/new-signing-keys.ps1`가 두 키 파일을 함께 씁니다.
+- 공개키 2개(주 키, 예비 키) 중 하나만 맞으면 통과합니다. 키는 `src/keys.rs`에 있습니다(32바이트, base64).
+- 개인키(PKCS#8, base64): 주 키는 GitHub Secret `SIGNING_KEY_ED25519`(CI가 서명), 예비 키는 오프라인 보관. `tools/feed-sign`이 만들고 서명합니다([development.md](development.md#처음-한-번-업데이트-서명-키)).
+- `feed-sign`은 서명한 뒤 `src/keys.rs`의 키로 다시 확인하고 나서야 파일을 씁니다. 앱과 같은 `src/feed.rs`를 그대로 가져다 씁니다.
+
+### 옛 RSA 서명
+
+1.0.0 ~ 2.5.0은 `signature`(RSA-3072, PKCS#1 v1.5, SHA-256, 서명 대상은 위와 같음)만 확인하고, 모르는 필드는 무시합니다. 그래서 그 버전들도 새 버전으로 업데이트할 수 있게 CI가 RSA 서명(`tools/sign-release.ps1`, 시크릿 `SIGNING_PRIVATE_KEY`)도 붙입니다.
+
+- 새 앱은 `signature`를 보지 않습니다. 그래서 릴리스 워크플로의 `--verify-feed`로는 RSA 서명을 확인할 수 없고, 대신 `feed-sign release`가 RSA 공개키(`tools/feed-sign/src/legacy_rsa.rs`)로 확인한 뒤에야 Ed25519 서명을 붙입니다.
+- 2.5.0 이하가 하나도 남지 않으면 `sign-release.ps1`의 RSA 서명, `legacy_rsa.rs`, 시크릿 `SIGNING_PRIVATE_KEY`, `~/.keys`의 RSA 키를 지웁니다.
 
 ## 광고 자리 ID 목록
 
-카카오톡이 하단 배너의 광고 자리 ID(`DAN-…`)를 바꾸면 내장 배너가 다시 보입니다. 새 버전을 내지 않고 고칠 수 있게, 업데이트 정보에 ID 목록(`units`)을 따로 서명해서 싣습니다(2.4.1부터 읽음).
+카카오톡이 하단 배너의 광고 자리 ID(`DAN-…`)를 바꾸면 내장 배너가 다시 보입니다. 새 버전을 내지 않고 고칠 수 있게, 업데이트 정보에 ID 목록(`units`)을 따로 서명해서 싣습니다(2.5.0부터 읽음).
 
-- 서명 대상: `"KakaoAdHide-units\n" + 플랫폼 + "\n" + ID들을 "\n"으로 이은 것` (UTF-8). 플랫폼은 `windows` 또는 `macos`라, 한쪽 목록을 다른 쪽에 쓸 수 없습니다. 키와 알고리즘은 위 서명과 같습니다.
-- 위의 `signature`와 따로 서명하므로, 목록만 바꿔도 버전 서명은 그대로입니다. 1.0.0은 모르는 필드를 무시합니다.
+- 서명 대상: `"KakaoAdHide-units\n" + 플랫폼 + "\n" + ID들을 "\n"으로 이은 것` (UTF-8). 플랫폼은 `windows` 또는 `macos`라, 한쪽 목록을 다른 쪽에 쓸 수 없습니다. 키와 알고리즘은 위 서명과 같습니다(Ed25519). 2.5.0은 이 서명을 RSA로 확인하므로 목록을 무시하고, 앱에 들어 있는 목록만 씁니다.
+- 버전 서명과 따로 서명하므로, 목록만 바꿔도 버전 서명은 그대로입니다. 2.5.0 이전 버전은 이 필드를 무시합니다.
 - 앱은 업데이트를 확인할 때마다 서명이 맞는 목록을 설정(`BannerUnits`)에 저장합니다. 이 목록은 앱에 들어 있는 목록(`ad-units/<플랫폼>.txt`)에 **더해서만** 씁니다. 서명이 틀리거나 ID 형식(`DAN-`와 영숫자, 20개 이하)이 아니면 무시합니다.
 - Windows만 씁니다. macOS는 모든 자리에 빈 광고를 주므로 아직 쓰지 않습니다.
 - `--verify-feed`는 목록이 있으면 그 서명도 확인합니다.
@@ -49,7 +59,7 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 **ID가 바뀌었을 때**
 
 1. `server.log`에서 새 `[DAN-…]`를 확인하고 `ad-units/<플랫폼>.txt`에 추가해 main에 푸시합니다(옛 ID는 남겨 둡니다).
-2. Actions → `units` → Run workflow. 최신 릴리스의 `latest-*.json`에 새 목록을 서명해 다시 올립니다(`tools/sign-units.ps1`).
+2. Actions → `units` → Run workflow. 최신 릴리스의 `latest-*.json`에 새 목록을 서명해 다시 올립니다(`feed-sign units`).
 3. 설치된 앱은 다음 업데이트 확인 때(시작 1분 뒤, 그 뒤 하루 한 번) 목록을 받습니다. 카카오톡을 다시 켜면 빈 광고가 돌아옵니다.
 
 릴리스 때는 CI가 같은 도구로 목록을 함께 서명합니다.
@@ -60,7 +70,7 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 
 1. `url`이 `https://github.com/pandemoniummm/KakaoAdHide/releases/download/`로 시작
 2. 받은 파일의 크기와 SHA-256이 JSON과 같음
-3. `signature`가 공개키 중 하나로 검증됨
+3. `signature_ed25519`가 공개키 중 하나로 검증됨
 4. `version`이 지금 버전보다 높음
 
 macOS는 여기에 더해 dmg 안의 앱을 확인합니다.

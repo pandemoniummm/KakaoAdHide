@@ -1,10 +1,12 @@
 //! The update feed (latest-windows.json / latest-macos.json) and its verification.
 //!
-//! Same format and signature as KakaoAdHide 1.0.0 (see docs/update-feed.md):
+//! See docs/update-feed.md:
 //!   - the download link must point into this repository's releases,
 //!   - size and SHA-256 must match the feed,
-//!   - the feed's signature (RSA, PKCS#1 v1.5, SHA-256) over "KakaoAdHide\n<version>\n<sha256 hex>" (UTF-8) must
-//!     verify with one of the public keys in keys.rs.
+//!   - the feed's Ed25519 signature (`signature_ed25519`) over "KakaoAdHide\n<version>\n<sha256 hex>" (UTF-8)
+//!     must verify with one of the public keys in keys.rs.
+//!
+//! The feed's RSA `signature` is for copies before 2.5.1 (tools/feed-sign checks it); this app ignores it.
 
 use base64::Engine;
 use serde::Deserialize;
@@ -28,11 +30,13 @@ pub struct Feed {
     #[serde(default)]
     pub size: u64,
     pub sha256: String,
-    pub signature: String,
+    /// Ed25519 over `signed_message`, base64.
+    #[serde(default)]
+    pub signature_ed25519: String,
     #[serde(default)]
     pub page: Option<String>,
-    /// The bottom banner's ad placement ids, signed on their own (`units_message`): KakaoTalk may change the id
-    /// without a new KakaoAdHide release (#10). Not in 1.0.0's feeds; it ignores the fields.
+    /// The bottom banner's ad placement ids, signed on their own (`units_message`, Ed25519): KakaoTalk may change
+    /// the id without a new KakaoAdHide release (#10). Copies before 2.5.0 ignore the fields.
     #[serde(default)]
     pub units: Vec<String>,
     #[serde(default)]
@@ -70,7 +74,7 @@ impl Feed {
     pub fn parse(data: &[u8]) -> Result<Feed, VerifyError> {
         let data = data.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(data);   // UTF-8 BOM (PowerShell may write one)
         let f: Feed = serde_json::from_slice(data).map_err(|_| VerifyError::BadFeed)?;
-        if Version::parse(&f.version).is_none() || f.url.is_empty() || f.sha256.is_empty() || f.signature.is_empty() {
+        if Version::parse(&f.version).is_none() || f.url.is_empty() || f.sha256.is_empty() || f.signature_ed25519.is_empty() {
             return Err(VerifyError::BadFeed);
         }
         Ok(f)
@@ -122,35 +126,24 @@ pub fn unit_ok(u: &str) -> bool {
 pub fn verified_units(feed: &Feed, platform: &str, keys: &[&str]) -> Option<Vec<String>> {
     let sig = feed.units_signature.as_deref()?;
     if feed.units.is_empty() || feed.units.len() > 20 || !feed.units.iter().all(|u| unit_ok(u)) { return None; }
-    let sig = base64::engine::general_purpose::STANDARD.decode(sig.trim()).ok()?;
-    let msg = units_message(platform, &feed.units);
-    keys.iter().filter_map(|k| rsa_xml(k)).any(|(n, e)| {
-        ring::signature::RsaPublicKeyComponents { n: &n, e: &e }
-            .verify(&ring::signature::RSA_PKCS1_2048_8192_SHA256, &msg, &sig)
-            .is_ok()
-    })
-    .then(|| feed.units.clone())
+    units_signature_valid(platform, &feed.units, sig, keys).then(|| feed.units.clone())
 }
 
-/// .NET RSA XML public key (<RSAKeyValue><Modulus/><Exponent/></RSAKeyValue>) -> (n, e), big-endian.
-fn rsa_xml(xml: &str) -> Option<(Vec<u8>, Vec<u8>)> {
-    fn element(xml: &str, name: &str) -> Option<Vec<u8>> {
-        let a = xml.find(&format!("<{name}>"))? + name.len() + 2;
-        let b = xml[a..].find(&format!("</{name}>"))? + a;
-        base64::engine::general_purpose::STANDARD.decode(xml[a..b].trim()).ok()
-    }
-    Some((element(xml, "Modulus")?, element(xml, "Exponent")?))
+pub fn units_signature_valid(platform: &str, units: &[String], signature: &str, keys: &[&str]) -> bool {
+    ed25519_valid(&units_message(platform, units), signature, keys)
 }
 
 /// True when `signature` (base64) over the version and hash verifies with any of `keys`.
 pub fn signature_valid(version: &str, sha256_hex: &str, signature: &str, keys: &[&str]) -> bool {
+    ed25519_valid(&signed_message(version, sha256_hex), signature, keys)
+}
+
+/// Ed25519 `signature` (base64) over `msg`, with any of `keys` (base64, 32 bytes).
+fn ed25519_valid(msg: &[u8], signature: &str, keys: &[&str]) -> bool {
     let Ok(sig) = base64::engine::general_purpose::STANDARD.decode(signature.trim()) else { return false };
-    let msg = signed_message(version, sha256_hex);
-    keys.iter().filter_map(|k| rsa_xml(k)).any(|(n, e)| {
-        ring::signature::RsaPublicKeyComponents { n: &n, e: &e }
-            .verify(&ring::signature::RSA_PKCS1_2048_8192_SHA256, &msg, &sig)
-            .is_ok()
-    })
+    keys.iter()
+        .filter_map(|k| base64::engine::general_purpose::STANDARD.decode(k).ok().filter(|k| k.len() == 32))
+        .any(|k| ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, k).verify(msg, &sig).is_ok())
 }
 
 pub fn sha256_hex_reader(mut r: impl Read) -> std::io::Result<(String, u64)> {
@@ -174,7 +167,7 @@ pub fn verify_file(feed: &Feed, path: &Path, keys: &[&str]) -> Result<(), Verify
     let (hex, size) = sha256_hex_reader(f).map_err(|e| VerifyError::BadPackage(e.to_string()))?;
     if feed.size != 0 && feed.size != size { return Err(VerifyError::SizeMismatch); }
     if hex != feed.sha256.to_ascii_lowercase() { return Err(VerifyError::HashMismatch); }
-    if !signature_valid(&feed.version, &hex, &feed.signature, keys) { return Err(VerifyError::BadSignature); }
+    if !signature_valid(&feed.version, &hex, &feed.signature_ed25519, keys) { return Err(VerifyError::BadSignature); }
     Ok(())
 }
 
@@ -182,33 +175,50 @@ pub fn verify_file(feed: &Feed, path: &Path, keys: &[&str]) -> Result<(), Verify
 mod tests {
     use super::*;
     use crate::keys::PUBLIC_KEYS;
+    use base64::engine::general_purpose::STANDARD as B64;
+    use ring::signature::{Ed25519KeyPair, KeyPair};
 
-    fn v100() -> Feed { Feed::parse(include_bytes!("../tests/fixtures/v1.0.0-latest-windows.json")).unwrap() }
+    // A throwaway test key (not a release key).
+    fn test_key() -> (Ed25519KeyPair, String) {
+        let k = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
+        let public = B64.encode(k.public_key().as_ref());
+        (k, public)
+    }
 
-    // The published v1.0.0 feed was signed by the release workflow with the primary key.
+    const SHA: &str = "3f1c0e6a9b4d2c7e8f0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60";
+
+    fn signed_feed() -> (Feed, String) {
+        let (k, public) = test_key();
+        let sig = B64.encode(k.sign(&signed_message("2.5.1", SHA)).as_ref());
+        let json = format!(r#"{{"version":"2.5.1","url":"{ASSET_PREFIX}v2.5.1/KakaoAdHide-windows.exe","size":1,"sha256":"{SHA}","signature":"rsa","signature_ed25519":"{sig}"}}"#);
+        (Feed::parse(json.as_bytes()).unwrap(), public)
+    }
+
     #[test]
-    fn published_feed_verifies() {
-        let f = v100();
-        assert_eq!(f.version, "1.0.0");
-        assert!(signature_valid(&f.version, &f.sha256, &f.signature, PUBLIC_KEYS));
-        assert!(signature_valid(&f.version, &f.sha256.to_uppercase(), &f.signature, PUBLIC_KEYS));
+    fn signature_verifies() {
+        let (f, public) = signed_feed();
+        let keys = [public.as_str()];
+        assert!(signature_valid(&f.version, &f.sha256, &f.signature_ed25519, &keys));
+        assert!(signature_valid(&f.version, &f.sha256.to_uppercase(), &f.signature_ed25519, &keys));
         assert!(f.check_url().is_ok());
     }
 
     #[test]
     fn tampering_fails() {
-        let f = v100();
-        assert!(!signature_valid("1.0.1", &f.sha256, &f.signature, PUBLIC_KEYS));
+        let (f, public) = signed_feed();
+        let keys = [public.as_str()];
+        assert!(!signature_valid("2.5.2", &f.sha256, &f.signature_ed25519, &keys));
         let mut sha: Vec<char> = f.sha256.chars().collect();
         sha[0] = if sha[0] == '0' { '1' } else { '0' };
-        assert!(!signature_valid(&f.version, &sha.iter().collect::<String>(), &f.signature, PUBLIC_KEYS));
-        assert!(!signature_valid(&f.version, &f.sha256, "not base64!", PUBLIC_KEYS));
-        assert!(!signature_valid(&f.version, &f.sha256, &f.signature, &[]));
+        assert!(!signature_valid(&f.version, &sha.iter().collect::<String>(), &f.signature_ed25519, &keys));
+        assert!(!signature_valid(&f.version, &f.sha256, "not base64!", &keys));
+        assert!(!signature_valid(&f.version, &f.sha256, &f.signature_ed25519, &[]));
+        assert!(!signature_valid(&f.version, &f.sha256, &f.signature_ed25519, PUBLIC_KEYS));   // another key
     }
 
     #[test]
     fn urls() {
-        let mut f = v100();
+        let (mut f, _) = signed_feed();
         f.url = "https://github.com/someone/KakaoAdHide/releases/download/v1/x.exe".into();
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
         f.url = format!("{ASSET_PREFIX}../../evil");
@@ -218,11 +228,13 @@ mod tests {
     #[test]
     fn parsing() {
         assert_eq!(Feed::parse(b"{}"), Err(VerifyError::BadFeed));
-        let bad = br#"{"version":"x","url":"u","size":1,"sha256":"a","signature":"b"}"#;
+        let bad = br#"{"version":"x","url":"u","size":1,"sha256":"a","signature_ed25519":"b"}"#;
         assert_eq!(Feed::parse(bad), Err(VerifyError::BadFeed));
         let mut bom = vec![0xEF, 0xBB, 0xBF];
-        bom.extend_from_slice(br#"{"version":"1.2.3","url":"u","size":1,"sha256":"a","signature":"b"}"#);
+        bom.extend_from_slice(br#"{"version":"1.2.3","url":"u","size":1,"sha256":"a","signature_ed25519":"b"}"#);
         assert_eq!(Feed::parse(&bom).unwrap().version, "1.2.3");
+        // a feed with only the RSA signature (1.0.0 - 2.5.0) isn't one this app can check
+        assert_eq!(Feed::parse(include_bytes!("../tests/fixtures/v1.0.0-latest-windows.json")), Err(VerifyError::BadFeed));
     }
 
     #[test]
@@ -234,34 +246,33 @@ mod tests {
         assert!(Version::parse("1.0.0-beta").is_none());
     }
 
-    // A throwaway test key (not a release key) signed "KakaoAdHide-units\nwindows\nDAN-test1\nDAN-test2".
-    const TEST_KEY: &str = "<RSAKeyValue><Modulus>veBqECW8oOoaDehjk2Wi5Qn7t4yXy19dtDI+IEf+Dyfje7t4DL19nSzvxJYQ+DrAhaO2a+7+W1htkQ+UVcOwbrPyGgCDaZJWWD4qA7+qcwA2oyb7JoLJozTJv013g08tESeerOOe+xSjVFgygY/2aGuI6lx6aANrw/56K4ehCNOEmxFVzpFZ40dXyE/tv+ad79gSaSkBrHp/3V/kAqXkWAk9AqRlzPT3szCCP9jpwjybSG9CcYEd3SXQX8SeDeWXxZb3Gt1ftZ17oL9Vh3lkpW/C7zmrx7JfBrQg+QO7IzJE8YUNLb7vKn4Bsr2qmt31rj6ITyDScy5nspPAzzzhPQ==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
-    const TEST_UNITS_SIG: &str = "s6WH21vEb6S7NWHhTgD7t5zkABQuuk3NXUYF57I0+kXu2wvI7QfahDsWsKvAAkoe386g0iaYPojONlHIelDEzJ48VF+2iWMp84sWOR6j0GKot7yaspLQLPVnrw/IegI7ANOaYb+1FZzCcnuTb8l8BhWN1MYF2YpfHLQIO+tecHFwny2FDIv/zmBDIV7OLgPW1mHck+vx4/x4dQI427zg9IKCmySwZLdwsL783cfZ+rBPHq3I0liqQqQrXq4GFmlPDYv0+Z9EKRm8Iwx9i7fcOrDNiVjPdYdgb7pyNrlIrkn2DgD8llml11WEd/jt/39rEwMIiSmh4N+7INnVnNYUiQ==";
-
     #[test]
     fn units() {
-        let mut f = v100();
-        assert!(f.units.is_empty() && verified_units(&f, "windows", &[TEST_KEY]).is_none());   // 1.0.0's feed: none
+        let (k, public) = test_key();
+        let keys = [public.as_str()];
+        let (mut f, _) = signed_feed();
+        assert!(f.units.is_empty() && verified_units(&f, "windows", &keys).is_none());   // none in the feed
         f.units = vec!["DAN-test1".into(), "DAN-test2".into()];
-        f.units_signature = Some(TEST_UNITS_SIG.into());
-        assert_eq!(verified_units(&f, "windows", &[TEST_KEY]), Some(f.units.clone()));
-        assert!(verified_units(&f, "macos", &[TEST_KEY]).is_none());   // the other platform's list
+        f.units_signature = Some(B64.encode(k.sign(&units_message("windows", &f.units)).as_ref()));
+        assert_eq!(verified_units(&f, "windows", &keys), Some(f.units.clone()));
+        assert!(verified_units(&f, "macos", &keys).is_none());   // the other platform's list
         assert!(verified_units(&f, "windows", PUBLIC_KEYS).is_none());   // another key
         let mut g = f.clone();
         g.units.push("DAN-test3".into());
-        assert!(verified_units(&g, "windows", &[TEST_KEY]).is_none());
+        assert!(verified_units(&g, "windows", &keys).is_none());
         g.units = vec!["DAN-test2".into(), "DAN-test1".into()];
-        assert!(verified_units(&g, "windows", &[TEST_KEY]).is_none());
+        assert!(verified_units(&g, "windows", &keys).is_none());
         assert!(unit_ok("DAN-FTsOAPU4yZ6oHLGy") && !unit_ok("DAN-") && !unit_ok("DAN-a b") && !unit_ok("x-1"));
         // the fields parse, and a feed without them still does
-        let j = br#"{"version":"1.2.3","url":"u","sha256":"a","signature":"b","units":["DAN-x"],"units_signature":"c"}"#;
+        let j = br#"{"version":"1.2.3","url":"u","sha256":"a","signature_ed25519":"b","units":["DAN-x"],"units_signature":"c"}"#;
         assert_eq!(Feed::parse(j).unwrap().units, vec!["DAN-x".to_string()]);
     }
 
     #[test]
-    fn keys_match_the_windows_1_0_0_keys() {
-        // the same two keys as the published Windows 1.0.0 (their moduli are what the fixture verifies against)
+    fn release_keys() {
+        // a primary and a backup key, both Ed25519 public keys
         assert_eq!(PUBLIC_KEYS.len(), 2);
-        assert!(PUBLIC_KEYS.iter().all(|k| rsa_xml(k).map(|(n, _)| n.len() == 384).unwrap_or(false)));   // RSA-3072
+        assert_ne!(PUBLIC_KEYS[0], PUBLIC_KEYS[1]);
+        assert!(PUBLIC_KEYS.iter().all(|k| B64.decode(k).map(|k| k.len() == 32).unwrap_or(false)));
     }
 }
