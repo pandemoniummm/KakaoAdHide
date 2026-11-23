@@ -13,6 +13,8 @@
 # Ad-hoc builds run, but they cannot install updates signed with the release certificate (nor be installed by
 # one): the updater checks the code signature. Sign with the certificate to test updates.
 set -euo pipefail
+# name the command that stopped the build (several steps run quietly)
+trap 'echo "build.sh: line $LINENO failed (exit $?): $BASH_COMMAND" >&2' ERR
 
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
@@ -99,6 +101,18 @@ codesign --verify --strict --deep "$app"
 echo "built $app (version $version, signed: $([[ "$identity" == "-" ]] && echo ad-hoc || echo "$identity"))"
 
 # ---- disk image
+# hdiutil now and then fails on GitHub's macOS runners right after the app is built (quietly, in a few seconds):
+# try again a few times, and show its error when it keeps failing (its output is kept, so no -quiet).
+hdiutil_retry() {
+  local i out
+  for i in 1 2 3 4 5; do
+    if out="$(hdiutil "$@" 2>&1)"; then return 0; fi
+    echo "hdiutil $1 failed (try $i of 5): $out" >&2
+    sleep $((i * 3))
+  done
+  return 1
+}
+
 if [[ "$make_dmg" == 1 ]]; then
   dist="$repo/dist"
   mkdir -p "$dist"
@@ -118,10 +132,10 @@ if [[ "$make_dmg" == 1 ]]; then
   # plain window.
   rw="$tmp/rw.dmg"
   volname="KakaoAdHide $version"
-  hdiutil create -quiet -volname "$volname" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$rw"
+  hdiutil_retry create -volname "$volname" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$rw"
   mnt="/Volumes/$volname"
   [[ -e "$mnt" ]] && { echo "$mnt is already mounted: eject it first" >&2; exit 1; }
-  hdiutil attach -quiet -noautoopen -mountpoint "$mnt" "$rw"
+  hdiutil_retry attach -noautoopen -mountpoint "$mnt" "$rw"
   if [[ -f "$stage/.VolumeIcon.icns" ]] && command -v SetFile >/dev/null; then SetFile -a C "$mnt"; fi
   if ! /usr/bin/osascript - "$volname" >/dev/null 2>&1 <<'APPLESCRIPT'
 on run argv
@@ -152,7 +166,7 @@ APPLESCRIPT
   then echo "Finder could not lay out the disk image window: plain window" >&2; fi
   sync
   hdiutil detach -quiet "$mnt" || hdiutil detach -quiet -force "$mnt"
-  hdiutil convert -quiet "$rw" -format ULFO -o "$dmg"
+  hdiutil_retry convert "$rw" -format ULFO -ov -o "$dmg"
   if [[ "$identity" == "-" ]]; then codesign --force --sign - "$dmg"
   else codesign --force --sign "$identity" --keychain "$keychain" --timestamp=none "$dmg"; fi
   echo "built $dmg"
