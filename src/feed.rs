@@ -31,6 +31,12 @@ pub struct Feed {
     pub signature: String,
     #[serde(default)]
     pub page: Option<String>,
+    /// The bottom banner's ad placement ids, signed on their own (`units_message`): KakaoTalk may change the id
+    /// without a new KakaoAdHide release (#10). Not in 1.0.0's feeds; it ignores the fields.
+    #[serde(default)]
+    pub units: Vec<String>,
+    #[serde(default)]
+    pub units_signature: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -96,6 +102,34 @@ impl Ord for Version { fn cmp(&self, o: &Self) -> Ordering { self.0.cmp(&o.0) } 
 
 pub fn signed_message(version: &str, sha256_hex: &str) -> Vec<u8> {
     format!("KakaoAdHide\n{version}\n{}", sha256_hex.to_ascii_lowercase()).into_bytes()
+}
+
+/// What `units_signature` signs: "KakaoAdHide-units\n<platform>\n<id>\n<id>…" (UTF-8). The platform is in it so
+/// one platform's list can't be passed off as the other's.
+pub fn units_message(platform: &str, units: &[String]) -> Vec<u8> {
+    let mut m = format!("KakaoAdHide-units\n{platform}");
+    for u in units { m.push('\n'); m.push_str(u); }
+    m.into_bytes()
+}
+
+/// An ad placement id as KakaoTalk sends it: "DAN-" and letters or digits.
+pub fn unit_ok(u: &str) -> bool {
+    u.len() <= 64 && u.strip_prefix("DAN-").is_some_and(|r| !r.is_empty() && r.bytes().all(|b| b.is_ascii_alphanumeric()))
+}
+
+/// The feed's placement ids for `platform` when they're well formed and their signature verifies with one of
+/// `keys`; none otherwise.
+pub fn verified_units(feed: &Feed, platform: &str, keys: &[&str]) -> Option<Vec<String>> {
+    let sig = feed.units_signature.as_deref()?;
+    if feed.units.is_empty() || feed.units.len() > 20 || !feed.units.iter().all(|u| unit_ok(u)) { return None; }
+    let sig = base64::engine::general_purpose::STANDARD.decode(sig.trim()).ok()?;
+    let msg = units_message(platform, &feed.units);
+    keys.iter().filter_map(|k| rsa_xml(k)).any(|(n, e)| {
+        ring::signature::RsaPublicKeyComponents { n: &n, e: &e }
+            .verify(&ring::signature::RSA_PKCS1_2048_8192_SHA256, &msg, &sig)
+            .is_ok()
+    })
+    .then(|| feed.units.clone())
 }
 
 /// .NET RSA XML public key (<RSAKeyValue><Modulus/><Exponent/></RSAKeyValue>) -> (n, e), big-endian.
@@ -198,6 +232,30 @@ mod tests {
         assert_eq!(v("1.1"), v("1.1.0"));
         assert!(v("2.0.0") > v("1.99.99"));
         assert!(Version::parse("1.0.0-beta").is_none());
+    }
+
+    // A throwaway test key (not a release key) signed "KakaoAdHide-units\nwindows\nDAN-test1\nDAN-test2".
+    const TEST_KEY: &str = "<RSAKeyValue><Modulus>veBqECW8oOoaDehjk2Wi5Qn7t4yXy19dtDI+IEf+Dyfje7t4DL19nSzvxJYQ+DrAhaO2a+7+W1htkQ+UVcOwbrPyGgCDaZJWWD4qA7+qcwA2oyb7JoLJozTJv013g08tESeerOOe+xSjVFgygY/2aGuI6lx6aANrw/56K4ehCNOEmxFVzpFZ40dXyE/tv+ad79gSaSkBrHp/3V/kAqXkWAk9AqRlzPT3szCCP9jpwjybSG9CcYEd3SXQX8SeDeWXxZb3Gt1ftZ17oL9Vh3lkpW/C7zmrx7JfBrQg+QO7IzJE8YUNLb7vKn4Bsr2qmt31rj6ITyDScy5nspPAzzzhPQ==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
+    const TEST_UNITS_SIG: &str = "s6WH21vEb6S7NWHhTgD7t5zkABQuuk3NXUYF57I0+kXu2wvI7QfahDsWsKvAAkoe386g0iaYPojONlHIelDEzJ48VF+2iWMp84sWOR6j0GKot7yaspLQLPVnrw/IegI7ANOaYb+1FZzCcnuTb8l8BhWN1MYF2YpfHLQIO+tecHFwny2FDIv/zmBDIV7OLgPW1mHck+vx4/x4dQI427zg9IKCmySwZLdwsL783cfZ+rBPHq3I0liqQqQrXq4GFmlPDYv0+Z9EKRm8Iwx9i7fcOrDNiVjPdYdgb7pyNrlIrkn2DgD8llml11WEd/jt/39rEwMIiSmh4N+7INnVnNYUiQ==";
+
+    #[test]
+    fn units() {
+        let mut f = v100();
+        assert!(f.units.is_empty() && verified_units(&f, "windows", &[TEST_KEY]).is_none());   // 1.0.0's feed: none
+        f.units = vec!["DAN-test1".into(), "DAN-test2".into()];
+        f.units_signature = Some(TEST_UNITS_SIG.into());
+        assert_eq!(verified_units(&f, "windows", &[TEST_KEY]), Some(f.units.clone()));
+        assert!(verified_units(&f, "macos", &[TEST_KEY]).is_none());   // the other platform's list
+        assert!(verified_units(&f, "windows", PUBLIC_KEYS).is_none());   // another key
+        let mut g = f.clone();
+        g.units.push("DAN-test3".into());
+        assert!(verified_units(&g, "windows", &[TEST_KEY]).is_none());
+        g.units = vec!["DAN-test2".into(), "DAN-test1".into()];
+        assert!(verified_units(&g, "windows", &[TEST_KEY]).is_none());
+        assert!(unit_ok("DAN-FTsOAPU4yZ6oHLGy") && !unit_ok("DAN-") && !unit_ok("DAN-a b") && !unit_ok("x-1"));
+        // the fields parse, and a feed without them still does
+        let j = br#"{"version":"1.2.3","url":"u","sha256":"a","signature":"b","units":["DAN-x"],"units_signature":"c"}"#;
+        assert_eq!(Feed::parse(j).unwrap().units, vec!["DAN-x".to_string()]);
     }
 
     #[test]

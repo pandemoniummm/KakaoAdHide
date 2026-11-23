@@ -27,6 +27,10 @@ pub fn updated(previous: &str) -> Notice { notice("업데이트 완료", format!
 pub fn new_version(version: &str) -> Notice { notice("새 버전", format!("KakaoAdHide {version}\n지금 업데이트할까요?")) }
 pub const UPDATE: &str = "업데이트";
 pub const LATER: &str = "나중에";
+/// The ad addresses no longer come to this computer (another program or an antivirus put the hosts file back).
+/// Shown with `SET_UP_AGAIN` / `LATER`; the notification itself or `SET_UP_AGAIN` sets the hosts file up again.
+pub fn unrouted() -> Notice { notice("광고 차단이 풀렸습니다", "hosts 파일 설정이 빠져 광고가 다시 보일 수 있습니다".into()) }
+pub const SET_UP_AGAIN: &str = "다시 설정";
 pub fn up_to_date() -> Notice { notice("최신 버전", format!("KakaoAdHide {VERSION}")) }
 pub fn installed() -> Notice { notice("설치 완료", "로그인하면 함께 켜집니다\n메뉴: 카카오톡 빈 칸 왼쪽 버튼".into()) }
 pub fn removed() -> Notice { notice("제거 완료", "KakaoAdHide를 지웠습니다".into()) }

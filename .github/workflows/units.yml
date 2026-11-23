@@ -1,0 +1,35 @@
+name: units
+
+# Puts the ad placement ids in ad-units/ (main) into the latest release's update feeds, signed, without a new
+# release: for when KakaoTalk changes the bottom banner's id (#10). Run by hand (Actions → units → Run workflow)
+# after the new id is in ad-units/<platform>.txt on main. The apps pick the list up at their next update check.
+# The feeds' other fields and their signature stay as they are.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  units:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Sign into the latest release's feeds
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
+        run: |
+          if (-not $env:SIGNING_PRIVATE_KEY) { throw 'SIGNING_PRIVATE_KEY secret is not set' }
+          $tag = gh release view --repo "${{ github.repository }}" --json tagName -q .tagName
+          if (-not $tag) { throw 'no published release' }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          gh release download $tag --repo "${{ github.repository }}" -D dist -p latest-windows.json -p latest-macos.json
+          ./tools/sign-units.ps1 -Feed dist/latest-windows.json -Platform windows
+          ./tools/sign-units.ps1 -Feed dist/latest-macos.json -Platform macos
+          Get-Content dist/latest-windows.json, dist/latest-macos.json | Select-String 'version|DAN-'
+          gh release upload $tag --repo "${{ github.repository }}" --clobber dist/latest-windows.json dist/latest-macos.json
+          "updated the feeds of $tag"

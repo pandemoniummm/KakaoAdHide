@@ -54,6 +54,9 @@ enum UserEvent {
     /// The "new version" notification or its Update button was clicked: install.
     #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
     InstallUpdate,
+    /// The "unblocked" notification or its Set up again button was clicked.
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+    Reroute,
 }
 
 #[derive(Clone, Copy)]
@@ -268,7 +271,36 @@ impl App {
             Status::NotRouted if setup::routed() => Some(Status::Serving),
             _ => None,
         };
-        if let Some(n) = next { self.status = n; self.refresh(); }
+        if let Some(n) = next {
+            let unrouted = n == Status::NotRouted;
+            self.status = n;
+            self.refresh();
+            if unrouted { self.tell_unrouted(); }
+        }
+    }
+
+    /// The hosts file lost our lines while running (#11): the menu alone says so, which nobody sees. A
+    /// notification with Set up again / Later; where none can be shown, the same question in a dialog.
+    fn tell_unrouted(&mut self) {
+        let n = notices::unrouted();
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            let p = self.proxy.clone();
+            let shown = platform::notify(&n.title, &n.body, &[(notices::SET_UP_AGAIN, "setup"), (notices::LATER, "later")],
+                Some(Box::new(move |id| {
+                    if id.as_deref() != Some("later") { let _ = p.send_event(UserEvent::Reroute); }
+                })));
+            if shown { return; }
+        }
+        if confirm(&n.title, &n.body, notices::SET_UP_AGAIN, notices::LATER) { self.reroute(); }
+    }
+
+    /// Puts the hosts lines back (asks for administrator rights) when they're still missing.
+    fn reroute(&mut self) {
+        if self.status != Status::NotRouted { return; }
+        if let Err(e) = platform::set_hosts(true) { error(&notices::setup_failed(&e)); }
+        self.status = if setup::routed() { Status::Serving } else { Status::NotRouted };
+        self.refresh();
     }
 
     fn update_checked(&mut self, result: Result<Check, String>, interactive: bool) -> bool {
@@ -318,14 +350,11 @@ impl App {
     fn menu(&mut self, id: &MenuId) -> bool {
         match self.action(id) {
             Some(Action::Setup) => {
-                if self.status == Status::NotRouted {
-                    if let Err(e) = platform::set_hosts(true) { error(&notices::setup_failed(&e)); }
-                    self.status = if setup::routed() { Status::Serving } else { Status::NotRouted };
-                } else {
+                if self.status == Status::NotRouted { self.reroute(); } else {
                     platform::set("Consented", None);
                     self.start(true);
+                    self.refresh();
                 }
-                self.refresh();
             }
             Some(Action::RestartKakao) => {
                 #[cfg(any(windows, target_os = "macos"))]
@@ -415,6 +444,8 @@ pub fn run(at_sign_in: bool) -> ! {
             Event::UserEvent(UserEvent::ShowMenu) => { app.show_menu(); false }
             #[cfg(any(windows, target_os = "macos"))]
             Event::UserEvent(UserEvent::InstallUpdate) => app.pending.clone().is_some_and(|f| app.install(f)),
+            #[cfg(any(windows, target_os = "macos"))]
+            Event::UserEvent(UserEvent::Reroute) => { app.reroute(); false }
             Event::UserEvent(UserEvent::Quit) => true,
             Event::UserEvent(UserEvent::RouteCheck) => { app.route_check(); false }
             Event::UserEvent(UserEvent::TimerCheck) => { if updater::enabled() { app.check_updates(false); } false }

@@ -143,6 +143,9 @@ jobs:
           if (-not $env:SIGNING_PRIVATE_KEY) { throw 'SIGNING_PRIVATE_KEY secret is not set (tools/new-signing-keys.ps1 -SetSecret)' }
           ./tools/sign-release.ps1 -Exe dist/KakaoAdHide-windows.exe -Version $env:VERSION -Tag "${{ github.ref_name }}"
           ./tools/sign-release.ps1 -Exe dist/KakaoAdHide-macos.dmg -Version $env:VERSION -Tag "${{ github.ref_name }}" -Out dist/latest-macos.json
+          # the bottom banner's ad placement ids (ad-units/), signed on their own; units.yml re-signs them later
+          ./tools/sign-units.ps1 -Feed dist/latest-windows.json -Platform windows
+          ./tools/sign-units.ps1 -Feed dist/latest-macos.json -Platform macos
 
       - name: Verify with the built exe
         shell: powershell

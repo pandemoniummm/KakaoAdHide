@@ -6,7 +6,10 @@
 //! 1.0.0's did; macOS also checks the app's code signature and swaps the bundle (platform::install_update).
 //! Requests carry only "User-Agent: KakaoAdHide/<version>".
 //!
-//! Settings: UpdateCheck ("0" turns the check off), SkippedVersion, NotifiedVersion, LastVersion.
+//! The feed may also carry the bottom banner's ad placement ids, signed on their own; verified ones are kept in
+//! the BannerUnits setting (banner::is_bottom_banner).
+//!
+//! Settings: UpdateCheck ("0" turns the check off), SkippedVersion, NotifiedVersion, LastVersion, BannerUnits.
 
 use crate::feed::{self, Feed, Version, VerifyError};
 use crate::{platform, VERSION};
@@ -57,6 +60,9 @@ pub enum Check { UpToDate, Available(Feed) }
 pub fn check() -> Result<Check, String> {
     let data = get_limited(&feed::feed_url(platform::NAME), MAX_FEED)?;
     let f = Feed::parse(&data).map_err(|e| e.to_string())?;
+    if let Some(units) = feed::verified_units(&f, platform::NAME, crate::keys::PUBLIC_KEYS) {
+        platform::set(crate::banner::FEED_UNITS, Some(&units.join(",")));
+    }
     let newer = match (Version::parse(&f.version), Version::parse(VERSION)) { (Some(a), Some(b)) => a > b, _ => false };
     Ok(if newer { Check::Available(f) } else { Check::UpToDate })
 }
@@ -93,6 +99,12 @@ pub fn verify_command(feed_path: &str, package: &str) -> i32 {
     let Ok(data) = std::fs::read(feed_path) else { return 1 };
     let Ok(f) = Feed::parse(&data) else { return 1 };
     if f.version != VERSION { return 4; }
+    // a list that's there must verify too (an unsigned or mis-signed one would just be ignored by the app)
+    if (!f.units.is_empty() || f.units_signature.is_some())
+        && feed::verified_units(&f, platform::NAME, crate::keys::PUBLIC_KEYS).is_none() {
+        eprintln!("not verified: ad placement ids (units)");
+        return 3;
+    }
     match platform::verify_package(&f, Path::new(package)) {
         Ok(()) => 0,
         Err(e) => { eprintln!("not verified: {e}"); 3 }

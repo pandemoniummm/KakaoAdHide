@@ -20,7 +20,9 @@
   "size":      1234567,
   "sha256":    "<받는 파일의 SHA-256, 16진수 소문자>",
   "signature": "<base64>",
-  "page":      "https://github.com/pandemoniummm/KakaoAdHide/releases/tag/v1.1.0"
+  "page":      "https://github.com/pandemoniummm/KakaoAdHide/releases/tag/v1.1.0",
+  "units":     ["DAN-FTsOAPU4yZ6oHLGy"],
+  "units_signature": "<base64>"
 }
 ```
 
@@ -33,6 +35,24 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 - 버전과 파일 해시를 함께 서명하므로, 옛 릴리스 파일을 새 버전인 척 내밀어 되돌리는(다운그레이드) 것을 막습니다.
 - 공개키 2개(주 키, 예비 키) 중 하나만 맞으면 통과합니다. 키는 `src/keys.rs`에 있고(KakaoAdHide 1.0.0과 같은 키), 테스트(`published_feed_verifies`)가 공개된 v1.0.0 업데이트 정보의 실제 서명을 이 키로 검증합니다.
 - 개인키: 주 키는 GitHub Secret `SIGNING_PRIVATE_KEY`(CI가 서명), 예비 키는 오프라인 보관. `tools/new-signing-keys.ps1`가 두 키 파일을 함께 씁니다.
+
+## 광고 자리 ID 목록
+
+카카오톡이 하단 배너의 광고 자리 ID(`DAN-…`)를 바꾸면 내장 배너가 다시 보입니다. 새 버전을 내지 않고 고칠 수 있게, 업데이트 정보에 ID 목록(`units`)을 따로 서명해서 싣습니다(2.4.1부터 읽음).
+
+- 서명 대상: `"KakaoAdHide-units\n" + 플랫폼 + "\n" + ID들을 "\n"으로 이은 것` (UTF-8). 플랫폼은 `windows` 또는 `macos`라, 한쪽 목록을 다른 쪽에 쓸 수 없습니다. 키와 알고리즘은 위 서명과 같습니다.
+- 위의 `signature`와 따로 서명하므로, 목록만 바꿔도 버전 서명은 그대로입니다. 1.0.0은 모르는 필드를 무시합니다.
+- 앱은 업데이트를 확인할 때마다 서명이 맞는 목록을 설정(`BannerUnits`)에 저장합니다. 이 목록은 앱에 들어 있는 목록(`ad-units/<플랫폼>.txt`)에 **더해서만** 씁니다. 서명이 틀리거나 ID 형식(`DAN-`와 영숫자, 20개 이하)이 아니면 무시합니다.
+- Windows만 씁니다. macOS는 모든 자리에 빈 광고를 주므로 아직 쓰지 않습니다.
+- `--verify-feed`는 목록이 있으면 그 서명도 확인합니다.
+
+**ID가 바뀌었을 때**
+
+1. `server.log`에서 새 `[DAN-…]`를 확인하고 `ad-units/<플랫폼>.txt`에 추가해 main에 푸시합니다(옛 ID는 남겨 둡니다).
+2. Actions → `units` → Run workflow. 최신 릴리스의 `latest-*.json`에 새 목록을 서명해 다시 올립니다(`tools/sign-units.ps1`).
+3. 설치된 앱은 다음 업데이트 확인 때(시작 1분 뒤, 그 뒤 하루 한 번) 목록을 받습니다. 카카오톡을 다시 켜면 빈 광고가 돌아옵니다.
+
+릴리스 때는 CI가 같은 도구로 목록을 함께 서명합니다.
 
 ## 앱이 확인하는 것
 

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. hosts로 광고 주소를 127.0.0.1로 보내고, 자체 서명 인증서로 443 포트에서 빈 광고를 돌려줍니다. 구조·빌드·릴리스 절차는 [docs/development.md](docs/development.md), 업데이트 피드는 [docs/update-feed.md](docs/update-feed.md)에 있습니다. 여기에는 그 문서에 없는 작업 규칙만 적습니다.
+KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. hosts로 광고 주소를 127.0.0.1로 보내고, 자체 서명 인증서로 443 포트에서 빈 광고를 돌려줍니다. 구조·빌드·릴리스 절차는 [docs/development.md](docs/development.md), 업데이트 피드는 [docs/update-feed.md](docs/update-feed.md), 실측한 카카오톡 구조는 [docs/kakaotalk.md](docs/kakaotalk.md)에 있습니다. 카카오톡에서 새로 알아낸 것은 kakaotalk.md에 적습니다. 여기에는 그 문서에 없는 작업 규칙만 적습니다.
 
 ## 사용자와 일하는 규칙
 
@@ -62,7 +62,7 @@ KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. h
 - Claude가 띄운 프로세스는 사용자의 로컬 인증서를 보지 못합니다. **카카오톡을 직접 다시 켜지 않습니다**(내장 배너로 바뀌고 `server.log`에 CertificateUnknown이 남음).
 - Claude는 `%LOCALAPPDATA%\KakaoAdHide\server.log` 읽기, 창 목록, 화면 캡처, 클릭으로 잴 수 있습니다. 모니터별 DPI 인식(`SetProcessDpiAwarenessContext -4`)을 켭니다(보조 모니터 150 %).
 - 카카오톡 창: 메인은 클래스 `EVA_Window_Dblclk`, 제목 `카카오톡`. 광고 칸은 메인이 소유한 별도 최상위 창입니다. 메인 창 자체가 포그라운드가 아니면(채팅방, 광고 칸 클릭, 우리 메뉴) 사이드바가 흐려집니다. 카카오톡은 광고 페이지에 활성 신호를 보내지 않습니다(확인함).
-- 광고 페이지는 WebView2 `ReadyToListen`에 `AdLoaded {result:true}`로 답하고, 실제 광고와 같은 필드와 Content-Type `application/json`을 갖춰야 합니다. 아니면 내장 배너가 뜹니다. `BOTTOM_BANNER_UNITS`만 빈 광고를 받고, 다른 자리는 `ads: []`.
+- 광고 페이지는 WebView2 `ReadyToListen`에 `AdLoaded {result:true}`로 답하고, 응답에 `status`·`id`·`content`·`events`와 Content-Type `application/json`이 있어야 합니다. 아니면 내장 배너가 뜹니다. `ad-units/windows.txt`(와 업데이트 정보의 서명된 목록)의 자리만 빈 광고를 받고, 다른 자리는 `ads: []`. 자세한 건 [docs/kakaotalk.md](docs/kakaotalk.md).
 - Windows 카카오톡은 다크 모드가 없고, 시스템이 다크여도 웹뷰는 라이트로 그립니다. Windows에는 다크 CSS를 넣지 않습니다(`DARK_MODE`).
 - Defender: 서명 없는 로컬 빌드가 `Trojan:Win32/Bearfoos.A!ml`(ML)로 잡힐 수 있습니다. 다른 프로세스를 들여다보는 API(`QueryFullProcessImageName` 등)는 피합니다. 넘기기 전에 검사합니다:
   `& "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File <exe> -DisableRemediation`
