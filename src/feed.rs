@@ -1,4 +1,7 @@
-//! The update feed (latest-windows.json / latest-macos.json) and its verification.
+//! The update feed (update-windows.json / update-macos.json, from 2.5.2) and its verification.
+//!
+//! Copies before 2.5.2 read latest-<platform>.json instead. From 2.5.3 on, every release carries the 2.5.2 release's
+//! latest-*.json unchanged (packaging/bridge/), so those copies first update to 2.5.2 and then follow this feed.
 //!
 //! See docs/update-feed.md:
 //!   - the download link must point into this repository's releases,
@@ -20,7 +23,7 @@ pub const ASSET_PREFIX: &str = "https://github.com/pandemoniummm/KakaoAdHide/rel
 pub const RELEASES_PAGE: &str = "https://github.com/pandemoniummm/KakaoAdHide/releases/latest";
 
 pub fn feed_url(platform: &str) -> String {
-    format!("https://github.com/{REPO}/releases/latest/download/latest-{platform}.json")
+    format!("https://github.com/{REPO}/releases/latest/download/update-{platform}.json")
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -223,6 +226,8 @@ mod tests {
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
         f.url = format!("{ASSET_PREFIX}../../evil");
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
+        // the 2.5.2+ feed; latest-*.json stays the 2.5.2 bridge for older copies
+        assert_eq!(feed_url("macos"), "https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/update-macos.json");
     }
 
     #[test]

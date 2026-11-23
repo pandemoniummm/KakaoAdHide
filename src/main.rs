@@ -6,7 +6,7 @@
 //   KakaoAdHide --uninstall     remove everything (Windows; on macOS use the menu)
 //   KakaoAdHide --update        check for an update now and install it after verifying it
 //   --quiet                     no message boxes (install / uninstall)
-//   KakaoAdHide --verify-feed <latest-*.json> <package>   used by the release workflow
+//   KakaoAdHide --verify-feed <update-*.json> <package>   used by the release workflow
 //   KakaoAdHide --version
 #![cfg_attr(windows, windows_subsystem = "windows")]
 

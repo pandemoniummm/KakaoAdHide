@@ -1,6 +1,8 @@
-//! Signs KakaoAdHide's update feeds (latest-windows.json / latest-macos.json) with Ed25519, the signature the app
-//! checks (src/feed.rs, docs/update-feed.md). Not part of the app.
+//! Makes and signs KakaoAdHide's update feeds with Ed25519, the signature the app checks (src/feed.rs,
+//! docs/update-feed.md). Not part of the app.
 //!
+//!   feed-sign new <package> <version> <tag> <feed.json>
+//!       Writes a feed (update-*.json) for the package: its release link, size, SHA-256 and signature_ed25519.
 //!   feed-sign keygen <private-key-file>
 //!       New key pair: writes the private key (PKCS#8, base64) to the file and prints the public key for
 //!       src/keys.rs. The private key is never printed.
@@ -40,10 +42,11 @@ fn main() -> ExitCode {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     let r = match a.as_slice() {
         ["keygen", out] => keygen(Path::new(out)),
+        ["new", package, version, tag, out] => new(Path::new(package), version, tag, Path::new(out), key_file.as_deref()),
         ["release", feed] => release(Path::new(feed), key_file.as_deref()),
         ["units", feed, platform] => units(Path::new(feed), platform, None, key_file.as_deref()),
         ["units", feed, platform, ids] => units(Path::new(feed), platform, Some(Path::new(ids)), key_file.as_deref()),
-        _ => Err("usage: feed-sign keygen <file> | release <feed.json> | units <feed.json> <windows|macos> [ids-file] [--key-file <file>]".into()),
+        _ => Err("usage: feed-sign keygen <file> | new <package> <version> <tag> <feed.json> | release <feed.json> | units <feed.json> <windows|macos> [ids-file] [--key-file <file>]".into()),
     };
     match r {
         Ok(()) => ExitCode::SUCCESS,
@@ -92,6 +95,27 @@ fn write_feed(path: &Path, feed: &Map<String, Value>) -> R {
 
 fn field<'a>(feed: &'a Map<String, Value>, name: &str) -> Result<&'a str, String> {
     feed.get(name).and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| format!("the feed has no {name}"))
+}
+
+fn new(package: &Path, version: &str, tag: &str, out: &Path, key_file: Option<&str>) -> R {
+    if feed::Version::parse(version).is_none() { return Err(format!("not a version: {version}")); }
+    if tag.is_empty() || !tag.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-') { return Err(format!("not a tag: {tag}")); }
+    let name = package.file_name().and_then(|n| n.to_str()).ok_or("no file name")?;
+    let key = signing_key(key_file)?;
+    let file = std::fs::File::open(package).map_err(|e| format!("{}: {e}", package.display()))?;
+    let (sha, size) = feed::sha256_hex_reader(file).map_err(|e| format!("{}: {e}", package.display()))?;
+    let sig = B64.encode(key.sign(&feed::signed_message(version, &sha)).as_ref());
+    if !feed::signature_valid(version, &sha, &sig, keys::PUBLIC_KEYS) { return Err("the new signature does not verify".into()); }
+    let mut f = Map::new();
+    f.insert("version".into(), version.into());
+    f.insert("url".into(), format!("{}{tag}/{name}", feed::ASSET_PREFIX).into());
+    f.insert("size".into(), size.into());
+    f.insert("sha256".into(), sha.into());
+    f.insert("page".into(), format!("https://github.com/{}/releases/tag/{tag}", feed::REPO).into());
+    f.insert("signature_ed25519".into(), sig.into());
+    write_feed(out, &f)?;
+    println!("wrote {} (version {version})", out.display());
+    Ok(())
 }
 
 fn release(path: &Path, key_file: Option<&str>) -> R {

@@ -7,6 +7,7 @@ KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. h
 - 답은 항상 한국어로 합니다.
 - 결제, Apple Developer 가입, 릴리스 공개, 강제 푸시처럼 되돌리기 어렵거나 밖으로 나가는 일은 하기 전에 묻습니다.
 - 커밋·푸시는 사용자가 요청할 때만 합니다.
+- 커밋 메시지는 한국어로 씁니다(제목과 본문 모두).
 
 ## 두 세션으로 나눠 일할 때
 
@@ -24,8 +25,8 @@ KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. h
 
 설치된 옛 버전이 계속 업데이트를 받을 수 있어야 합니다. 다음은 바꾸지 않습니다.
 
-- 업데이트 피드 이름 `latest-windows.json`, `latest-macos.json`
-- 업데이트 서명: `src/keys.rs`의 Ed25519 공개키(2.5.1부터). 2.5.0 이하가 남아 있는 동안은 RSA `signature`도 붙입니다([docs/update-feed.md](docs/update-feed.md#옛-rsa-서명))
+- 업데이트 피드 이름 `update-windows.json`, `update-macos.json`(2.5.2부터). 옛 이름 `latest-*.json`은 2.5.2 징검다리로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [docs/update-feed.md](docs/update-feed.md#징검다리-252))
+- 업데이트 서명: `src/keys.rs`의 Ed25519 공개키(2.5.1부터)
 - 설치 경로, 레지스트리 위치, 뮤텍스 `Local\KakaoAdHide`, 종료 이벤트 `Local\KakaoAdHide.Quit`
 - 명령줄 옵션 `--run`, `--uninstall`, `--update`, `--quiet`
 - macOS: 코드 서명 인증서(`SIGNING_CERT_SHA1`). 바꾸면 설치된 앱이 업데이트를 거부합니다.

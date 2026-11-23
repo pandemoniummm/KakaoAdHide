@@ -1,6 +1,6 @@
 //! Update check and download (the install step is per platform).
 //!
-//! A minute after start and then once a day the latest release's latest-<platform>.json is read. Nothing is
+//! A minute after start and then once a day the latest release's update-<platform>.json is read. Nothing is
 //! downloaded until the user picks the update. Then the package is downloaded, checked against the signed feed
 //! (feed.rs) and installed by the platform: Windows runs the new exe, which installs itself like KakaoAdHide
 //! 1.0.0's did; macOS also checks the app's code signature and swaps the bundle (platform::install_update).

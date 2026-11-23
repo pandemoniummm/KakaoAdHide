@@ -109,7 +109,7 @@ jobs:
   # On a v* tag: build both apps, sign both update feeds (SIGNING_KEY_ED25519, plus the RSA SIGNING_PRIVATE_KEY for
   # copies before 2.5.1), check each feed
   # with the app built for it, and upload everything as a DRAFT release. Nothing reaches users until the draft
-  # is published (releases/latest/download/latest-*.json, which the apps read, ignores drafts).
+  # is published (releases/latest/download/update-*.json and latest-*.json, which the apps read, ignore drafts).
 
   # The macOS app, signed with the self-signed release certificate (tools/new-macos-signing-cert.sh). Starts with
   # the test jobs instead of after them (macOS runners can take many minutes to come); the signing job below
@@ -171,25 +171,38 @@ jobs:
           SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
           SIGNING_KEY_ED25519: ${{ secrets.SIGNING_KEY_ED25519 }}
         run: |
-          if (-not $env:SIGNING_PRIVATE_KEY) { throw 'SIGNING_PRIVATE_KEY secret (RSA) is not set' }
           if (-not $env:SIGNING_KEY_ED25519) { throw 'SIGNING_KEY_ED25519 secret is not set (docs/development.md)' }
-          # RSA "signature": what copies before 2.5.1 check (drop with tools/feed-sign/src/legacy_rsa.rs)
-          ./tools/sign-release.ps1 -Exe dist/KakaoAdHide-windows.exe -Version $env:VERSION -Tag "${{ github.ref_name }}"
-          ./tools/sign-release.ps1 -Exe dist/KakaoAdHide-macos.dmg -Version $env:VERSION -Tag "${{ github.ref_name }}" -Out dist/latest-macos.json
-          # Ed25519 "signature_ed25519", and the bottom banner's ad placement ids (ad-units/), signed on their own;
-          # units.yml re-signs them later
+          $tag = "${{ github.ref_name }}"
+          function FeedSign { cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- @args; if ($LASTEXITCODE -ne 0) { throw "feed-sign $args failed" } }
+          $packages = @{ windows = 'dist/KakaoAdHide-windows.exe'; macos = 'dist/KakaoAdHide-macos.dmg' }
           foreach ($p in 'windows', 'macos') {
-            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- release "dist/latest-$p.json"
-            if ($LASTEXITCODE -ne 0) { throw "feed-sign release $p failed" }
-            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units "dist/latest-$p.json" $p
-            if ($LASTEXITCODE -ne 0) { throw "feed-sign units $p failed" }
+            # update-*.json: the feed 2.5.2 and later read (Ed25519), with the bottom banner's ad placement ids
+            # (ad-units/) signed on their own; units.yml re-signs them later
+            FeedSign new $packages[$p] $env:VERSION $tag "dist/update-$p.json"
+            FeedSign units "dist/update-$p.json" $p
+            # latest-*.json: the feed copies before 2.5.2 read. It stays the 2.5.2 release's (the bridge, kept in
+            # packaging/bridge/): they update to 2.5.2 first, then follow update-*.json. Only the bridge release
+            # itself makes one, signed with RSA too (1.0.0 - 2.5.0 check only that).
+            if (Test-Path "packaging/bridge/latest-$p.json") {
+              Copy-Item "packaging/bridge/latest-$p.json" "dist/latest-$p.json"
+            } else {
+              if (-not $env:SIGNING_PRIVATE_KEY) { throw 'SIGNING_PRIVATE_KEY secret (RSA) is not set: the bridge release needs it' }
+              ./tools/sign-release.ps1 -Exe $packages[$p] -Version $env:VERSION -Tag $tag -Out "dist/latest-$p.json"
+              FeedSign release "dist/latest-$p.json"
+              FeedSign units "dist/latest-$p.json" $p
+            }
           }
 
       - name: Verify with the built exe
         shell: powershell
         run: |
-          $p = Start-Process dist/KakaoAdHide-windows.exe -ArgumentList '--verify-feed', 'dist/latest-windows.json', 'dist/KakaoAdHide-windows.exe' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "update feed does not verify against the keys in src/keys.rs (exit $($p.ExitCode))" }
+          $feeds = @('dist/update-windows.json')
+          # the bridge feed too, when this release is the bridge (later releases carry it unchanged)
+          if ((Get-Content dist/latest-windows.json -Raw | ConvertFrom-Json).version -eq $env:VERSION) { $feeds += 'dist/latest-windows.json' }
+          foreach ($f in $feeds) {
+            $p = Start-Process dist/KakaoAdHide-windows.exe -ArgumentList '--verify-feed', $f, 'dist/KakaoAdHide-windows.exe' -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "$f does not verify against the keys in src/keys.rs (exit $($p.ExitCode))" }
+          }
 
       - name: Checksums for both platforms
         shell: powershell
@@ -203,8 +216,10 @@ jobs:
           name: release-files
           path: |
             dist/KakaoAdHide-windows.exe
+            dist/update-windows.json
             dist/latest-windows.json
             dist/KakaoAdHide-macos.dmg
+            dist/update-macos.json
             dist/latest-macos.json
             dist/SHA256SUMS.txt
 
@@ -229,12 +244,19 @@ jobs:
           hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" dist/KakaoAdHide-macos.dmg
           ditto "$mnt/KakaoAdHide.app" "$RUNNER_TEMP/KakaoAdHide.app"
           hdiutil detach "$mnt"
-          "$RUNNER_TEMP/KakaoAdHide.app/Contents/MacOS/KakaoAdHide" --verify-feed dist/latest-macos.json dist/KakaoAdHide-macos.dmg \
-            || { echo "macOS update feed does not verify (exit $?): keys in src/keys.rs, certificate in src/platform/macos.rs"; exit 1; }
+          version="$(plutil -extract CFBundleShortVersionString raw "$RUNNER_TEMP/KakaoAdHide.app/Contents/Info.plist")"
+          feeds=(dist/update-macos.json)
+          # the bridge feed too, when this release is the bridge (later releases carry it unchanged)
+          grep -q "\"version\": *\"$version\"" dist/latest-macos.json && feeds+=(dist/latest-macos.json)
+          for f in "${feeds[@]}"; do
+            "$RUNNER_TEMP/KakaoAdHide.app/Contents/MacOS/KakaoAdHide" --verify-feed "$f" dist/KakaoAdHide-macos.dmg \
+              || { echo "$f does not verify (exit $?): keys in src/keys.rs, certificate in src/platform/macos.rs"; exit 1; }
+          done
 
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft --title "${{ github.ref_name }}" --generate-notes \
-            dist/KakaoAdHide-windows.exe dist/latest-windows.json dist/KakaoAdHide-macos.dmg dist/latest-macos.json dist/SHA256SUMS.txt
+            dist/KakaoAdHide-windows.exe dist/update-windows.json dist/latest-windows.json \
+            dist/KakaoAdHide-macos.dmg dist/update-macos.json dist/latest-macos.json dist/SHA256SUMS.txt

@@ -28,11 +28,12 @@ jobs:
           $tag = gh release view --repo "${{ github.repository }}" --json tagName -q .tagName
           if (-not $tag) { throw 'no published release' }
           New-Item -ItemType Directory -Force dist | Out-Null
-          gh release download $tag --repo "${{ github.repository }}" -D dist -p latest-windows.json -p latest-macos.json
+          # update-*.json from 2.5.2 on; latest-*.json is the bridge for older copies and isn't touched
+          gh release download $tag --repo "${{ github.repository }}" -D dist -p update-windows.json -p update-macos.json
           foreach ($p in 'windows', 'macos') {
-            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units "dist/latest-$p.json" $p
+            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units "dist/update-$p.json" $p
             if ($LASTEXITCODE -ne 0) { throw "feed-sign units $p failed" }
           }
-          Get-Content dist/latest-windows.json, dist/latest-macos.json | Select-String 'version|DAN-'
-          gh release upload $tag --repo "${{ github.repository }}" --clobber dist/latest-windows.json dist/latest-macos.json
+          Get-Content dist/update-windows.json, dist/update-macos.json | Select-String 'version|DAN-'
+          gh release upload $tag --repo "${{ github.repository }}" --clobber dist/update-windows.json dist/update-macos.json
           "updated the feeds of $tag"
