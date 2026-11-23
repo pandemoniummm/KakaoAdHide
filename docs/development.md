@@ -13,7 +13,7 @@ Rust 하나로 두 플랫폼을 만듭니다.
 | `packaging/` | `windows/build.ps1`, `macos/build.sh`(앱 번들·서명·dmg), `macos/Info.plist` |
 | `tools/` | 업데이트 서명 키, 릴리스 서명, macOS 코드 서명 인증서 |
 | `assets/` | 아이콘 원본: 앱 아이콘(`icon.svg`), 선 아이콘(`icon-line.svg`, 사이드바 버튼과 트레이 모양) |
-| `tools/icon-gen/` | `icon.svg`에서 `packaging/windows/app.ico`, `packaging/macos/AppIcon.icns`, `assets/icon-256.png`을 만드는 도구 |
+| `tools/icon-gen/` | `icon.svg`에서 `packaging/windows/app.ico`, `packaging/macos/AppIcon.icns`, `assets/icon-256.png`을, `dmg-background.svg`에서 dmg 창 배경(`packaging/macos/dmg-background*.png`)을 만드는 도구 |
 | `docs/update-feed.md` | 업데이트 정보 형식과 서명 |
 | `VERSION` | 두 플랫폼 공통 버전 (`Cargo.toml`의 `version`과 같게) |
 

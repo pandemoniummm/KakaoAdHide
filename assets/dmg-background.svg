@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="540" height="360" viewBox="0 0 540 360">
+  <!-- The disk image window's background (packaging/macos/build.sh): the app at the left, Applications at the
+       right (icons placed by build.sh at x 140 and 400, y 165), and an arrow between them. No text: Finder
+       labels both icons. Rendered to packaging/macos/dmg-background*.png by tools/icon-gen. -->
+  <rect width="540" height="360" fill="#f4f4f6"/>
+  <g fill="none" stroke="#b8b8c0" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M222 165 H310"/>
+    <path d="M292 147 L312 165 L292 183"/>
+  </g>
+</svg>

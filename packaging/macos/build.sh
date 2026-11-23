@@ -108,17 +108,50 @@ if [[ "$make_dmg" == 1 ]]; then
   ditto "$app" "$stage/KakaoAdHide.app"
   ln -s /Applications "$stage/Applications"
   [[ -f "$here/AppIcon.icns" ]] && cp "$here/AppIcon.icns" "$stage/.VolumeIcon.icns"
+  # the window's background (assets/dmg-background.svg, 1x and 2x in one TIFF)
+  mkdir -p "$stage/.background"
+  tiffutil -cathidpicheck "$here/dmg-background.png" "$here/dmg-background@2x.png" -out "$stage/.background/background.tiff" 2>/dev/null
   rm -f "$dmg"
   # Made writable first so the volume can be flagged to show its icon (.VolumeIcon.icns; the flag needs SetFile
-  # from the command line tools), then compressed.
+  # from the command line tools) and Finder can lay out the window (saved in the volume's .DS_Store), then
+  # compressed. Without Finder (no GUI session, or no permission to script it) the image still works, with a
+  # plain window.
   rw="$tmp/rw.dmg"
-  hdiutil create -quiet -volname "KakaoAdHide $version" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$rw"
-  if [[ -f "$stage/.VolumeIcon.icns" ]] && command -v SetFile >/dev/null; then
-    mnt="$tmp/rw-mount"; mkdir -p "$mnt"
-    hdiutil attach -quiet -nobrowse -noautoopen -mountpoint "$mnt" "$rw"
-    SetFile -a C "$mnt"
-    hdiutil detach -quiet "$mnt"
-  fi
+  volname="KakaoAdHide $version"
+  hdiutil create -quiet -volname "$volname" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$rw"
+  mnt="/Volumes/$volname"
+  [[ -e "$mnt" ]] && { echo "$mnt is already mounted: eject it first" >&2; exit 1; }
+  hdiutil attach -quiet -noautoopen -mountpoint "$mnt" "$rw"
+  if [[ -f "$stage/.VolumeIcon.icns" ]] && command -v SetFile >/dev/null; then SetFile -a C "$mnt"; fi
+  if ! /usr/bin/osascript - "$volname" >/dev/null 2>&1 <<'APPLESCRIPT'
+on run argv
+  with timeout of 60 seconds
+    tell application "Finder"
+      tell disk (item 1 of argv)
+        open
+        set w to container window
+        set current view of w to icon view
+        set toolbar visible of w to false
+        set statusbar visible of w to false
+        set bounds of w to {200, 120, 740, 480}
+        set o to icon view options of w
+        set arrangement of o to not arranged
+        set icon size of o to 96
+        set text size of o to 13
+        set background picture of o to file ".background:background.tiff"
+        set position of item "KakaoAdHide.app" to {140, 165}
+        set position of item "Applications" to {400, 165}
+        update without registering applications
+        delay 1
+        close
+      end tell
+    end tell
+  end timeout
+end run
+APPLESCRIPT
+  then echo "Finder could not lay out the disk image window: plain window" >&2; fi
+  sync
+  hdiutil detach -quiet "$mnt" || hdiutil detach -quiet -force "$mnt"
   hdiutil convert -quiet "$rw" -format ULFO -o "$dmg"
   if [[ "$identity" == "-" ]]; then codesign --force --sign - "$dmg"
   else codesign --force --sign "$identity" --keychain "$keychain" --timestamp=none "$dmg"; fi

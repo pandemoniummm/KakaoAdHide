@@ -72,7 +72,19 @@ fn main() {
     std::fs::write("packaging/macos/AppIcon.icns", icns(&entries)).expect("AppIcon.icns");
 
     std::fs::write("assets/icon-256.png", render(&tree, 256, 0.0)).expect("icon-256.png");
-    for f in ["packaging/windows/app.ico", "packaging/macos/AppIcon.icns", "assets/icon-256.png"] {
+
+    // the disk image window's background, at 1x and 2x (build.sh joins them into one TIFF)
+    let bg = usvg::Tree::from_data(&std::fs::read("assets/dmg-background.svg").expect("assets/dmg-background.svg"),
+        &usvg::Options::default()).expect("assets/dmg-background.svg");
+    for (scale, f) in [(1.0, "packaging/macos/dmg-background.png"), (2.0, "packaging/macos/dmg-background@2x.png")] {
+        let size = bg.size();
+        let mut pixmap = tiny_skia::Pixmap::new((size.width() * scale) as u32, (size.height() * scale) as u32).expect("pixmap");
+        resvg::render(&bg, tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+        std::fs::write(f, pixmap.encode_png().expect("png")).expect(f);
+    }
+
+    for f in ["packaging/windows/app.ico", "packaging/macos/AppIcon.icns", "assets/icon-256.png",
+              "packaging/macos/dmg-background.png", "packaging/macos/dmg-background@2x.png"] {
         println!("{f}: {} bytes", Path::new(f).metadata().map(|m| m.len()).unwrap_or(0));
     }
 }
