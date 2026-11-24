@@ -156,14 +156,31 @@ impl App {
                 self.status = Status::NotSetUp;
                 return;
             }
+            // An install from before the rename: asked first, and put off while the old names keep the slot empty.
+            let moving = agreed && setup::is_moving(&m);
+            if moving && !self::ask(&notices::moving()) {
+                if setup::can_serve_now() { self.status = setup::serve(); self.port_busy(); return; }
+                self.status = Status::NotSetUp;
+                return;
+            }
             platform::set("Consented", Some("1"));
             if let Err(e) = setup::complete(&m) {
+                if moving && setup::can_serve_now() {
+                    self.status = setup::serve();
+                    show(&notices::moving_postponed());
+                    self.port_busy();
+                    return;
+                }
                 self.status = Status::NotSetUp;
                 error(&notices::setup_failed(&e));
                 return;
             }
         }
         self.status = setup::serve();
+        self.port_busy();
+    }
+
+    fn port_busy(&self) {
         if let Status::PortBusy(e) = &self.status {
             error(&notices::port_busy(e));
         }

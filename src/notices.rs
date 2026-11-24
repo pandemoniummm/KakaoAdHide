@@ -34,6 +34,8 @@ pub const SET_UP_AGAIN: &str = "다시 설정";
 pub fn up_to_date() -> Notice { notice("최신 버전", format!("TalkNap {VERSION}")) }
 pub fn installed() -> Notice { notice("설치 완료", "로그인하면 함께 켜집니다\n메뉴: 카카오톡 빈 칸 왼쪽 버튼".into()) }
 pub fn removed() -> Notice { notice("제거 완료", "TalkNap을 지웠습니다".into()) }
+/// The move to the new names was declined or failed while the old certificate and hosts block still work.
+pub fn moving_postponed() -> Notice { notice("이름 바꾸기를 미뤘습니다", "광고 칸은 그대로 비어 있습니다.\n다음에 켤 때 다시 묻습니다.".into()) }
 
 // ---------------------------------------------------------------- questions
 
@@ -50,6 +52,17 @@ pub fn first_setup() -> Ask {
         ok: "설정하기",
         cancel: "나중에",
     }
+}
+
+/// An install from before the rename (KakaoAdHide): its certificate and hosts block are redone under the new name.
+pub fn moving() -> Ask {
+    #[cfg(not(target_os = "macos"))]
+    let body = "KakaoAdHide가 TalkNap으로 이름을 바꿨습니다.\n\
+새 이름으로 인증서와 hosts 설정을 다시 하고 옛 것을 지웁니다. 확인 창이 두세 번 뜹니다.";
+    #[cfg(target_os = "macos")]
+    let body = "KakaoAdHide가 TalkNap으로 이름을 바꿨습니다.\n\
+새 이름으로 인증서와 hosts 설정을 다시 하고 옛 것을 지웁니다. 확인 창이 두세 번 뜨고, 알림 허용도 다시 묻습니다.";
+    Ask { title: "이름 바꾸기".into(), body: body.into(), ok: "계속", cancel: LATER }
 }
 
 pub fn offer_update(version: &str) -> Ask {
@@ -146,12 +159,24 @@ mod tests {
 
     #[test]
     fn questions_and_problems_are_short() {
-        for a in [offer_update("9.9.9"), uninstall(), update_unverified(), update_not_possible(), move_to_applications()] {
+        for a in [offer_update("9.9.9"), uninstall(), update_unverified(), update_not_possible(), move_to_applications(), moving()] {
             assert!(a.title.chars().count() <= 16 && lines(&a.body) <= 2, "{}", a.title);
         }
         for p in [check_failed("x"), download_failed("x"), setup_failed("x"), port_busy("x"), failed("x"),
                   uninstall_incomplete("x"), move_failed("x"), login_item_failed("x")] {
             assert!(p.title.chars().count() <= 12 && lines(&p.body) <= 2, "{}", p.title);
         }
+    }
+
+    #[test]
+    fn moving_texts() {
+        let a = moving();
+        assert_eq!((a.title.as_str(), a.ok, a.cancel), ("이름 바꾸기", "계속", "나중에"));
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(a.body, "KakaoAdHide가 TalkNap으로 이름을 바꿨습니다.\n새 이름으로 인증서와 hosts 설정을 다시 하고 옛 것을 지웁니다. 확인 창이 두세 번 뜹니다.");
+        #[cfg(target_os = "macos")]
+        assert_eq!(a.body, "KakaoAdHide가 TalkNap으로 이름을 바꿨습니다.\n새 이름으로 인증서와 hosts 설정을 다시 하고 옛 것을 지웁니다. 확인 창이 두세 번 뜨고, 알림 허용도 다시 묻습니다.");
+        let n = moving_postponed();
+        assert_eq!((n.title.as_str(), n.body.as_str()), ("이름 바꾸기를 미뤘습니다", "광고 칸은 그대로 비어 있습니다.\n다음에 켤 때 다시 묻습니다."));
     }
 }
