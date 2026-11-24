@@ -6,7 +6,8 @@
 //   KakaoAdHide --uninstall     remove everything (Windows; on macOS use the menu)
 //   KakaoAdHide --update        check for an update now and install it after verifying it
 //   --quiet                     no message boxes (install / uninstall)
-//   KakaoAdHide --verify-feed <update-*.json> <package>   used by the release workflow
+//   KakaoAdHide --verify-feed <feed-*.json> <package>     used by the release workflow (feed version = this one)
+//   KakaoAdHide --verify-update <feed-*.json> <package>   the same checks for a release this version or newer
 //   KakaoAdHide --version
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -21,6 +22,13 @@ fn main() {
     if let Some(i) = args.iter().position(|a| a == "--verify-feed") {
         let code = match (args.get(i + 1), args.get(i + 2)) {
             (Some(f), Some(p)) => updater::verify_command(f, p),
+            _ => 1,
+        };
+        std::process::exit(code);
+    }
+    if let Some(i) = args.iter().position(|a| a == "--verify-update") {
+        let code = match (args.get(i + 1), args.get(i + 2)) {
+            (Some(f), Some(p)) => updater::verify_update_command(f, p),
             _ => 1,
         };
         std::process::exit(code);

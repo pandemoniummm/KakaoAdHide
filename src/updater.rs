@@ -95,10 +95,23 @@ fn upgraded_from(last: &str) -> bool {
 /// KakaoAdHide --verify-feed <feed.json> <package> : for the release workflow. The app being released checks its
 /// own feed and package, so this also proves the feed's version is the version built into it.
 /// Exit codes: 0 ok, 3 not verified, 4 version mismatch, 1 other error.
-pub fn verify_command(feed_path: &str, package: &str) -> i32 {
+pub fn verify_command(feed_path: &str, package: &str) -> i32 { verify_with(feed_path, package, true) }
+
+/// KakaoAdHide --verify-update <feed.json> <package> : the same checks, made by an installed (older) app on a
+/// newer release, so the feed's version only has to be this version or newer.
+/// Exit codes: 0 ok, 3 not verified, 4 version older (or unreadable), 1 other error.
+pub fn verify_update_command(feed_path: &str, package: &str) -> i32 { verify_with(feed_path, package, false) }
+
+/// The feed's version against this app's: equal when `exact`, else equal or newer (both strictly parsed).
+fn version_ok(feed: &str, mine: &str, exact: bool) -> bool {
+    if exact { return feed == mine; }
+    matches!((Version::parse(feed), Version::parse(mine)), (Some(a), Some(b)) if a >= b)
+}
+
+fn verify_with(feed_path: &str, package: &str, exact: bool) -> i32 {
     let Ok(data) = std::fs::read(feed_path) else { return 1 };
     let Ok(f) = Feed::parse(&data) else { return 1 };
-    if f.version != VERSION { return 4; }
+    if !version_ok(&f.version, VERSION, exact) { return 4; }
     // a list that's there must verify too (an unsigned or mis-signed one would just be ignored by the app)
     if (!f.units.is_empty() || f.units_signature.is_some())
         && feed::verified_units(&f, platform::NAME, crate::keys::PUBLIC_KEYS).is_none() {
@@ -121,5 +134,17 @@ mod tests {
         assert!(!upgraded_from(VERSION));
         assert!(!upgraded_from("999.0.0"));   // downgrade
         assert!(!upgraded_from("not a version"));
+    }
+
+    #[test]
+    fn feed_version_rule() {
+        assert!(version_ok("2.6.0", "2.6.0", true));
+        assert!(!version_ok("2.6.1", "2.6.0", true));
+        assert!(version_ok("2.6.0", "2.6.0", false));
+        assert!(version_ok("2.6.1", "2.6.0", false));
+        assert!(version_ok("3.0.0", "2.6.0", false));
+        assert!(!version_ok("2.5.9", "2.6.0", false));
+        assert!(!version_ok("2.7.0-beta", "2.6.0", false));
+        assert!(!version_ok("", "2.6.0", false));
     }
 }
