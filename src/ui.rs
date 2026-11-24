@@ -148,6 +148,7 @@ impl App {
 
     /// Setup (with consent the first time), then the server.
     fn start(&mut self, ask: bool) {
+        setup::open_log();
         let m = setup::missing();
         if m.any() {
             let agreed = platform::get("Consented").is_some();
@@ -158,13 +159,33 @@ impl App {
             }
             // An install from before the rename: asked first, and put off while the old names keep the slot empty.
             let moving = agreed && setup::is_moving(&m);
+            if moving && setup::can_serve_now() {
+                // The old certificate and hosts block still work: the server runs before anything is asked, so
+                // the slot stays empty while the questions wait (e.g. started at sign-in with nobody there).
+                // complete() switches the running server to the new certificate before removing the old ones.
+                self.status = setup::serve();
+                self.port_busy();
+                if !self::ask(&notices::moving()) {
+                    crate::server::note("move to the new name put off (asked again at the next start)");
+                    return;
+                }
+                if let Err(e) = setup::complete(&m) {
+                    crate::server::note(&format!("move to the new name not finished: {e}"));
+                    show(&notices::moving_postponed());
+                }
+                if matches!(self.status, Status::Serving | Status::NotRouted) {
+                    self.status = if setup::routed() { Status::Serving } else { Status::NotRouted };
+                }
+                return;
+            }
             if moving && !self::ask(&notices::moving()) {
-                if setup::can_serve_now() { self.status = setup::serve(); self.port_busy(); return; }
+                crate::server::note("move to the new name put off (asked again at the next start)");
                 self.status = Status::NotSetUp;
                 return;
             }
             platform::set("Consented", Some("1"));
             if let Err(e) = setup::complete(&m) {
+                crate::server::note(&format!("setup not finished: {e}"));
                 if moving && setup::can_serve_now() {
                     self.status = setup::serve();
                     show(&notices::moving_postponed());

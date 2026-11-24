@@ -21,7 +21,7 @@ pub enum Status {
 pub fn cert_dir() -> std::path::PathBuf { platform::data_dir().join("certs") }
 
 /// What still has to be done before the server can work. `old`: an old-name certificate is still trusted, or
-/// `certs/old/` (the swapped-out KakaoAdHide certificate) is still there.
+/// `certs/` still holds the KakaoAdHide certificate (it goes to `certs/old/` and then away).
 pub struct Missing {
     pub cert: bool,
     pub trust: bool,
@@ -47,7 +47,9 @@ pub fn missing() -> Missing {
     let hosts = if hosts::has_old_block(&text) { HostsState::Old }
         else if hosts::is_applied(&text) && routed() { HostsState::Current }
         else { HostsState::None };
-    let old_left = platform::old_certificates_present() || dir.join("old").exists();
+    let old_left = platform::old_certificates_present();
+    // `certs/old/` without an old-name certificate in the store is only a leftover: nothing to ask about.
+    if !old_left { let _ = std::fs::remove_dir_all(dir.join("old")); }
     let s = steps(&SetupState { cert, trusted, hosts, old_left });
     Missing {
         cert: s.contains(&Step::NewCert),
@@ -65,7 +67,8 @@ pub fn is_moving(m: &Missing) -> bool { m.cert_old || m.hosts_old || m.old }
 
 /// Makes what is missing, in order: a new certificate and its trust (the system asks the user), the hosts entries
 /// (asks for an administrator; `hosts::add` drops the old block), then the old-name certificates. Stops at the
-/// first step the user declines or that fails.
+/// first step the user declines or that fails. A server already running (the move, served first with the old
+/// certificate) is switched to the new certificate before the old ones are removed.
 pub fn complete(m: &Missing) -> Result<(), String> {
     let dir = cert_dir();
     if m.cert && m.cert_old {
@@ -77,6 +80,10 @@ pub fn complete(m: &Missing) -> Result<(), String> {
         platform::trust_certificate(&certs::paths(&dir))?;
     } else if m.trust {
         platform::trust_certificate(&certs::paths(&dir))?;
+    }
+    if m.cert {
+        let p = certs::paths(&dir);
+        server::reload_cert(&p.pem, &p.key).map_err(|e| format!("새 인증서로 바꾸지 못했습니다: {e}"))?;
     }
     if m.hosts {
         platform::set_hosts(true)?;
@@ -131,6 +138,9 @@ pub fn routed() -> bool {
     })
 }
 
+/// Sends `server::note` and the server's lines to server.log in the data folder.
+pub fn open_log() { server::set_log(Some(platform::data_dir().join("server.log"))); }
+
 /// Starts the server with the current certificate.
 pub fn serve() -> Status {
     let p = certs::paths(&cert_dir());
@@ -138,7 +148,7 @@ pub fn serve() -> Status {
         Ok(c) => c,
         Err(e) => return Status::Failed(format!("인증서를 읽지 못했습니다: {e}")),
     };
-    server::set_log(Some(platform::data_dir().join("server.log")));
+    open_log();
     match server::start(cfg, &server::listen_addresses(443)) {
         Ok(_) => if routed() { Status::Serving } else { Status::NotRouted },
         Err(e) => Status::PortBusy(e),
@@ -178,7 +188,7 @@ enum CertState { Missing, Old, Current }
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum HostsState { None, Old, Current }
 
-/// What `missing()` found; `old_left`: an old-name certificate is still trusted, or `certs/old/` is still there.
+/// What `missing()` found; `old_left`: an old-name certificate is still in the store.
 #[derive(Debug, Clone, Copy)]
 struct SetupState { cert: CertState, trusted: bool, hosts: HostsState, old_left: bool }
 
