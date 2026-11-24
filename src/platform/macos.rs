@@ -308,13 +308,21 @@ pub fn install_update(feed: &Feed) -> Result<(), crate::updater::InstallError> {
     let dmg = work.join(UPDATE_ASSET);
     crate::updater::download(feed, &dmg)?;
     feed::verify_file(feed, &dmg, keys::PUBLIC_KEYS).map_err(InstallError::Verify)?;
-    let (new_app, renamed) = extract_verified_app(&dmg, &work, &feed.version).map_err(InstallError::Verify)?;
-    let script = work.join("replace.sh");
-    std::fs::write(&script, REPLACE_SCRIPT).map_err(|e| InstallError::Io(e.to_string()))?;
-    let dst = if renamed { app.with_file_name(TALKNAP_APP_NAME) } else { app.clone() };
+    hand_over(&dmg, &work, &feed.version, &app, std::process::id(), REPLACE_SCRIPT)
+}
+
+/// The part of install_update after the download and feed check: checks the app in the disk image
+/// (extract_verified_app), writes `script` (REPLACE_SCRIPT; tests pass a copy that opens nothing) to the work
+/// folder and starts it to swap the installed `app` once process `wait_pid` has exited. The script removes `work`.
+fn hand_over(dmg: &Path, work: &Path, version: &str, app: &Path, wait_pid: u32, script: &str) -> Result<(), crate::updater::InstallError> {
+    use crate::updater::InstallError;
+    let (new_app, renamed) = extract_verified_app(dmg, work, version).map_err(InstallError::Verify)?;
+    let script_path = work.join("replace.sh");
+    std::fs::write(&script_path, script).map_err(|e| InstallError::Io(e.to_string()))?;
+    let dst = if renamed { app.with_file_name(TALKNAP_APP_NAME) } else { app.to_path_buf() };
     let mut cmd = Command::new("/bin/bash");
-    cmd.arg(&script).arg(std::process::id().to_string()).arg(&new_app).arg(&dst).arg(&work);
-    if renamed { cmd.arg(&app); }
+    cmd.arg(&script_path).arg(wait_pid.to_string()).arg(&new_app).arg(&dst).arg(work);
+    if renamed { cmd.arg(app); }
     cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
         .spawn().map_err(|e| InstallError::Io(e.to_string()))?;
     Ok(())
@@ -633,6 +641,9 @@ mod tests {
     // Run by hand against disk images made by packaging/macos/build.sh --dmg:
     //   KAH_SIGNED_DMG=<signed dmg> KAH_UNSIGNED_DMG=<ad-hoc dmg> KAH_DMG_VERSION=<version> \
     //     cargo test -- --ignored disk_images
+    // The renaming update end to end (hand_over + REPLACE_SCRIPT, opening nothing), against a disk image made by
+    // packaging/macos/make-rename-test-dmg.sh:
+    //   KAH_RENAME_DMG=<TalkNap dmg> KAH_DMG_VERSION=<version given to it> cargo test -- --ignored rename_disk_image
     #[test]
     #[ignore]
     fn disk_images() {
@@ -652,5 +663,37 @@ mod tests {
         let r = extract_verified_app(Path::new(&std::env::var("KAH_SIGNED_DMG").unwrap()), &work, "0.0.1");
         let _ = std::fs::remove_dir_all(&work);
         assert!(matches!(r, Err(VerifyError::BadPackage(ref w)) if w.contains("버전")));
+    }
+
+    // A throwaway Applications folder holding a fake KakaoAdHide.app: hand_over checks the TalkNap disk image and
+    // its script must leave only TalkNap.app (the new bundle identifier) once the "running app" (a sleep) exits.
+    #[test]
+    #[ignore]
+    fn rename_disk_image() {
+        let version = std::env::var("KAH_DMG_VERSION").unwrap();
+        let dmg = std::env::var("KAH_RENAME_DMG").unwrap();
+        let dir = std::env::temp_dir().join(format!("kah-rename-dmg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (apps, work) = (dir.join("Applications"), dir.join("work"));
+        let old = apps.join(APP_NAME);
+        for d in [&old, &work] { std::fs::create_dir_all(d).unwrap(); }
+        std::fs::write(old.join("marker"), "old").unwrap();
+        let mut sleeper = Command::new("/bin/sleep").arg("1").spawn().unwrap();
+        let pid = sleeper.id();
+        let reaper = std::thread::spawn(move || sleeper.wait());   // a zombie would still answer kill -0
+        hand_over(Path::new(&dmg), &work, &version, &old, pid, &REPLACE_SCRIPT.replace("/usr/bin/open", "true"))
+            .unwrap_or_else(|e| panic!("hand_over: {e:?}"));
+        let _ = reaper.join();
+        let start = std::time::Instant::now();
+        while work.exists() {
+            assert!(start.elapsed() < std::time::Duration::from_secs(60), "the script did not finish");
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let found: Vec<_> = std::fs::read_dir(&apps).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(found, [TALKNAP_APP_NAME], "{found:?}");
+        let id = Command::new("/usr/bin/plutil").args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
+            .arg(apps.join(TALKNAP_APP_NAME).join("Contents/Info.plist")).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&id.stdout).trim(), TALKNAP_BUNDLE_ID);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
