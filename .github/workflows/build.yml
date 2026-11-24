@@ -169,6 +169,7 @@ jobs:
         shell: powershell
         env:
           SIGNING_KEY_ED25519: ${{ secrets.SIGNING_KEY_ED25519 }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if (-not $env:SIGNING_KEY_ED25519) { throw 'SIGNING_KEY_ED25519 secret is not set (docs/development.md)' }
           $tag = "${{ github.ref_name }}"
@@ -185,6 +186,12 @@ jobs:
             # Only the 2.6.0 release makes them (packaging/bridge/README.md); it has to be committed after that.
             if (Test-Path "packaging/bridge/update-$p.json") {
               Copy-Item "packaging/bridge/update-$p.json" "dist/update-$p.json"
+              # the committed bridge must still match the published 2.6.0 package (old message, old prefix)
+              $asset = Split-Path $packages[$p] -Leaf
+              gh release download v2.6.0 --repo "${{ github.repository }}" -D bridge-check -p $asset --clobber
+              if ($LASTEXITCODE -ne 0) { throw "could not download $asset from the v2.6.0 release to check the bridge" }
+              cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- verify "dist/update-$p.json" "bridge-check/$asset" --legacy
+              if ($LASTEXITCODE -ne 0) { throw "packaging/bridge/update-$p.json does not verify against the v2.6.0 release's $asset (--legacy)" }
               FeedSign units "dist/update-$p.json" $p --legacy
             } elseif ($env:VERSION -eq '2.6.0') {
               FeedSign new $packages[$p] $env:VERSION $tag "dist/update-$p.json" --legacy

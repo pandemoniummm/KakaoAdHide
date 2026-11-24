@@ -131,9 +131,10 @@ tools/new-macos-signing-cert.sh --set-secret
    git tag -a v2.1.0 -m v2.1.0; git push origin v2.1.0
    ```
 4. GitHub Actions가 두 플랫폼 빌드 → 업데이트 정보 서명 → 각 플랫폼 앱으로 서명 검증 → **초안(draft) 릴리스** 생성까지 합니다.
-   올라가는 파일: `KakaoAdHide-windows.exe`, `update-windows.json`, `latest-windows.json`, `KakaoAdHide-macos.dmg`, `update-macos.json`, `latest-macos.json`, `SHA256SUMS.txt`
+   올라가는 파일: `KakaoAdHide-windows.exe`, `feed-windows.json`, `update-windows.json`, `latest-windows.json`, `KakaoAdHide-macos.dmg`, `feed-macos.json`, `update-macos.json`, `latest-macos.json`, `SHA256SUMS.txt`
    - `latest-*.json`은 2.5.1 이하가 읽는 징검다리로, `packaging/bridge/`의 파일을 그대로 올립니다([update-feed.md](update-feed.md#징검다리-252)).
 5. 초안에 릴리스 노트를 쓰고 **Publish release**를 누르면, 그때부터 사용자에게 업데이트 알림이 갑니다.
+6. 2.6.0을 공개한 뒤 그 릴리스의 `update-windows.json`, `update-macos.json`을 `packaging/bridge/`에 넣고 커밋합니다(다음 릴리스 전에 꼭).
 
 공개 전에 태그를 다시 붙여야 하면(CI 실패를 고친 뒤 등):
 

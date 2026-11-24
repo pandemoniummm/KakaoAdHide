@@ -85,17 +85,18 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 
 macOS는 여기에 더해 dmg 안의 앱을 확인합니다.
 
-5. dmg를 읽기 전용으로 마운트하고, 볼륨 바로 아래의 `KakaoAdHide.app`(바로가기가 아닌 실제 폴더)을 복사
-6. 번들 ID `io.github.pandemoniummm.KakaoAdHide`, 버전이 JSON의 `version`과 같음
-7. 코드 서명이 번들 전체에서 유효하고, 릴리스 인증서(`KakaoAdHide Code Signing`, SHA-1은 `src/platform/macos.rs`)로 서명됨
+5. dmg를 읽기 전용으로 마운트하고, 볼륨 바로 아래의 `KakaoAdHide.app`(바로가기가 아닌 실제 폴더)을 복사. 2.6.0부터는 `TalkNap.app`이 있으면 그것을 복사
+6. 번들 ID `io.github.pandemoniummm.KakaoAdHide`, 버전이 JSON의 `version`과 같음. `TalkNap.app`은 번들 ID `io.github.pandemoniummm.TalkNap`만 받음
+7. 코드 서명이 번들 전체에서 유효하고, 릴리스 인증서(`KakaoAdHide Code Signing`, SHA-1은 `src/platform/macos.rs`)로 서명됨. `TalkNap.app`은 `TalkNap Code Signing` 인증서(`SIGNING_CERT_SHA1_TALKNAP`)만 받음
 
-그다음 앱이 종료되면 별도 스크립트가 새 앱을 옆에 복사하고 바꿔 끼웁니다. 실패하면 이전 앱을 되돌려 놓고, 어느 쪽이든 다시 실행합니다.
+그다음 앱이 종료되면 별도 스크립트가 새 앱을 옆에 복사하고 바꿔 끼웁니다. 실패하면 이전 앱을 되돌려 놓고, 어느 쪽이든 다시 실행합니다. 새 앱이 `TalkNap.app`이면(2.6.0부터) 같은 폴더에 `TalkNap.app`으로 넣고 `KakaoAdHide.app`을 지웁니다. 실패하면 `KakaoAdHide.app`을 그대로 둡니다.
 
 ## 릴리스 워크플로의 확인
 
 - Windows: 만든 exe가 `--verify-feed feed-windows.json KakaoAdHide-windows.exe`로 직접 확인 (exe에 들어간 버전과 JSON 버전이 같은지도 확인)
 - macOS: dmg에서 꺼낸 앱이 `--verify-feed feed-macos.json KakaoAdHide-macos.dmg`로 직접 확인 (위 1~7을 사용자와 같은 코드로 실행)
-- 징검다리 릴리스에서는 징검다리 파일도 확인합니다: 2.5.2는 `latest-*.json`, 2.6.0은 `update-*.json`(`feed-sign verify --legacy`). 그 뒤 릴리스의 이 파일들은 고정본을 복사한 것이라 확인하지 않습니다(버전이 다름).
+- 징검다리 릴리스에서는 징검다리 파일도 확인합니다: 2.5.2는 `latest-*.json`, 2.6.0은 `update-*.json`(`feed-sign verify --legacy`). 그 뒤 릴리스는 고정본 `update-*.json`을 복사하기 전에 v2.6.0 릴리스의 패키지를 받아 `feed-sign verify --legacy`로 다시 확인합니다. `latest-*.json`은 확인하지 않습니다(버전이 다름).
+- 설치된(옛) 버전으로 새 릴리스를 확인: `--verify-update <feed-*.json> <패키지>`. `--verify-feed`와 같은 확인(목록 서명 포함)이지만 JSON 버전이 그 앱 버전과 **같거나 높으면** 됩니다(2.6.0부터. 종료 코드 0 확인됨, 3 확인 실패, 4 버전이 낮거나 읽을 수 없음, 1 그 밖의 오류).
 
 ## macOS 코드 서명 인증서
 
@@ -103,4 +104,5 @@ macOS는 여기에 더해 dmg 안의 앱을 확인합니다.
 
 - 만들기: `tools/new-macos-signing-cert.sh` (개인키는 `~/.keys/`, 저장소 밖)
 - CI 등록: `tools/new-macos-signing-cert.sh --set-secret` → `MACOS_SIGNING_P12`, `MACOS_SIGNING_PASSWORD`
+- 2.6.0부터 `TalkNap.app`은 따로 만든 `TalkNap Code Signing` 인증서(`tools/new-macos-signing-cert.sh --name TalkNap`, `SIGNING_CERT_SHA1_TALKNAP`)로 서명된 것만 받습니다.
 - **인증서를 바꾸면** 설치된 앱이 새 버전을 거부합니다(수동 업데이트 필요). 나중에 Apple Developer ID로 옮길 때는, 먼저 두 서명을 모두 받아들이는 버전(`src/platform/macos.rs`의 `requirement`에 팀 ID 추가)을 내보낸 다음에 서명을 바꿉니다.

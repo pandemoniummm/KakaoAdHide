@@ -33,12 +33,23 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           # feed-*.json from 2.6.0 on, update-*.json for 2.5.2; latest-*.json is the older bridge and isn't touched
           gh release download $tag --repo "${{ github.repository }}" -D dist -p feed-windows.json -p feed-macos.json -p update-windows.json -p update-macos.json
+          # a release may lack some of them (one older than 2.6.0 has no feed-*.json): skip what isn't there
+          $done = @()
           foreach ($p in 'windows', 'macos') {
-            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units "dist/feed-$p.json" $p
-            if ($LASTEXITCODE -ne 0) { throw "feed-sign units feed-$p failed" }
-            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units "dist/update-$p.json" $p --legacy
-            if ($LASTEXITCODE -ne 0) { throw "feed-sign units update-$p --legacy failed" }
+            foreach ($f in @(@{ name = "feed-$p.json"; legacy = $false }, @{ name = "update-$p.json"; legacy = $true })) {
+              $path = "dist/$($f.name)"
+              if (-not (Test-Path $path)) { "skipped $($f.name) (not in $tag)"; continue }
+              if ($f.legacy) {
+                cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units $path $p --legacy
+              } else {
+                cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units $path $p
+              }
+              if ($LASTEXITCODE -ne 0) { throw "feed-sign units $($f.name) failed" }
+              $done += $path
+            }
           }
-          Get-Content dist/feed-windows.json, dist/feed-macos.json, dist/update-windows.json, dist/update-macos.json | Select-String 'version|DAN-'
-          gh release upload $tag --repo "${{ github.repository }}" --clobber dist/feed-windows.json dist/feed-macos.json dist/update-windows.json dist/update-macos.json
+          if ($done.Count -eq 0) { throw "no feed-*.json or update-*.json in $tag" }
+          Get-Content $done | Select-String 'version|DAN-'
+          gh release upload $tag --repo "${{ github.repository }}" --clobber @done
+          if ($LASTEXITCODE -ne 0) { throw 'upload failed' }
           "updated the feeds of $tag"

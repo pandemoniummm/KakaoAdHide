@@ -2,7 +2,8 @@
 //! docs/update-feed.md). Not part of the app.
 //!
 //!   feed-sign new <package> <version> <tag> <feed.json>
-//!       Writes a feed (update-*.json) for the package: its release link, size, SHA-256 and signature_ed25519.
+//!       Writes a feed (feed-*.json; update-*.json with --legacy) for the package: its release link, size,
+//!       SHA-256 and signature_ed25519.
 //!   feed-sign keygen <private-key-file>
 //!       New key pair: writes the private key (PKCS#8, base64) to the file and prints the public key for
 //!       src/keys.rs. The private key is never printed.
@@ -110,10 +111,14 @@ fn legacy_units_message(platform: &str, units: &[String]) -> Vec<u8> {
 }
 
 /// Checks a feed file against its package and `keys`: url, size, SHA-256 and the signature (old message if `legacy`).
+/// With `legacy` the url must also be under the old repository's prefix, the only one 2.5.2 accepts.
 fn verify_with(feed_path: &Path, package: &Path, legacy: bool, keys: &[&str]) -> R {
     let data = std::fs::read(feed_path).map_err(|e| format!("{}: {e}", feed_path.display()))?;
     let f = feed::Feed::parse(&data).map_err(|e| e.to_string())?;
     f.check_url().map_err(|e| e.to_string())?;
+    if legacy && !f.url.strip_prefix(feed::ASSET_PREFIX).is_some_and(|rest| !rest.contains("..")) {
+        return Err(format!("url is not under {} (2.5.2 accepts only that)", feed::ASSET_PREFIX));
+    }
     let file = std::fs::File::open(package).map_err(|e| format!("{}: {e}", package.display()))?;
     let (sha, size) = feed::sha256_hex_reader(file).map_err(|e| format!("{}: {e}", package.display()))?;
     if f.size != 0 && f.size != size { return Err("size does not match".into()); }
@@ -214,6 +219,17 @@ mod tests {
         let keys = [public.as_str()];
         assert_eq!(verify_with(&feed_path, &package, false, &keys), Ok(()));
         assert!(verify_with(&feed_path, &package, true, &keys).is_err());
+        std::fs::remove_dir_all(feed_path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn legacy_verify_rejects_the_talknap_prefix() {
+        let (feed_path, package, public) = fixture("prefix", true);
+        let keys = [public.as_str()];
+        let talknap = feed::ASSET_PREFIXES.iter().find(|p| p.contains("/TalkNap/")).unwrap();
+        let text = std::fs::read_to_string(&feed_path).unwrap().replace(feed::ASSET_PREFIX, talknap);
+        std::fs::write(&feed_path, text).unwrap();
+        assert!(verify_with(&feed_path, &package, true, &keys).unwrap_err().contains("2.5.2"));
         std::fs::remove_dir_all(feed_path.parent().unwrap()).unwrap();
     }
 }
