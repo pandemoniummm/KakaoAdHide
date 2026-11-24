@@ -102,19 +102,11 @@ fn old_certificate_hashes() -> Vec<String> {
 /// True when the login keychain holds a certificate whose name is the old CN.
 pub fn old_certificates_present() -> bool { !old_certificate_hashes().is_empty() }
 
-/// Removes trust from and deletes every old-CN certificate in the login keychain.
+/// Deletes every old-CN certificate from the login keychain (-t also drops its user trust settings).
+/// Whether it worked is decided by looking again, not by the exit codes.
 pub fn remove_old_certificates() -> Result<(), String> {
     for hash in old_certificate_hashes() {
-        // remove-trusted-cert wants the certificate itself: take its PEM out by hash.
-        if let Ok(pem) = Command::new("/usr/bin/security").args(["find-certificate", "-Z", &hash, "-p"]).arg(login_keychain())
-            .stderr(std::process::Stdio::null()).output() {
-            let tmp = std::env::temp_dir().join(format!("TalkNap-old-{hash}.pem"));
-            if std::fs::write(&tmp, &pem.stdout).is_ok() {
-                let _ = Command::new("/usr/bin/security").arg("remove-trusted-cert").arg(&tmp).status();
-                let _ = std::fs::remove_file(&tmp);
-            }
-        }
-        let _ = Command::new("/usr/bin/security").args(["delete-certificate", "-Z", &hash]).arg(login_keychain()).status();
+        let _ = Command::new("/usr/bin/security").args(["delete-certificate", "-Z", &hash, "-t"]).arg(login_keychain()).status();
     }
     if old_certificates_present() { Err("옛 인증서를 지우지 못했습니다.".into()) } else { Ok(()) }
 }
