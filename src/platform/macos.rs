@@ -268,13 +268,24 @@ fn remove_old_apps(running: &Path) {
     for folder in [PathBuf::from("/Applications"), home().join("Applications")] {
         let app = folder.join(OLD_APP_NAME);
         if !app.is_absolute() || app.as_path() == running || !app.is_dir() || !is_old_app(&bundle_id_of(&app)) { continue; }
-        let stopped = Command::new("/usr/bin/pkill").arg("-f").arg(format!("^{}/Contents/MacOS/", regex_escape(&app.display().to_string())))
+        let pattern = format!("^{}/Contents/MacOS/", regex_escape(&app.display().to_string()));
+        let pkill = |signal: &str| Command::new("/usr/bin/pkill").args([signal, "-f", pattern.as_str()])
             .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
             .status().map(|s| s.success()).unwrap_or(false);
-        // let it exit (and free port 443) before our server starts
-        if stopped { std::thread::sleep(std::time::Duration::from_secs(1)); }
+        // wait until it has exited (its lock released, port 443 free) before moving its data and starting our
+        // server: up to 5 s after SIGTERM, then SIGKILL and up to 2 s more
+        if pkill("-TERM") && !wait_old_exit(50) && pkill("-KILL") { wait_old_exit(20); }
         let _ = std::fs::remove_dir_all(&app);
     }
+}
+
+/// Waits (`tries` × 100 ms at most) until no KakaoAdHide holds its lock. True once none does.
+fn wait_old_exit(tries: u32) -> bool {
+    for _ in 0..tries {
+        if !old_copy_running() { return true; }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    !old_copy_running()
 }
 
 /// `s` as a literal in an extended regular expression (pkill -f).
@@ -350,9 +361,10 @@ fn old_copy_running() -> bool { open_old_lock().is_some_and(|f| !lock(&f)) }
 
 /// Held for the life of the process: a second instance finds it locked and quits. A running KakaoAdHide counts as
 /// a first instance too (it serves the blank ad on port 443 with its own certificate): then this one quits, as a
-/// second KakaoAdHide did. That only happens when this copy isn't the installed one (run from the disk image):
-/// migrate_old has stopped the installed old app before. The old lock, when there is one, is held as well, so a
-/// KakaoAdHide started later quits.
+/// second KakaoAdHide did. That only happens when this copy isn't the installed one (run from the disk image), or
+/// when an old copy runs from somewhere else: migrate_old has stopped the installed old app and waited until it
+/// exited (remove_old_apps: SIGTERM, up to 5 s, then SIGKILL, up to 2 s). The old lock, when there is one, is held
+/// as well, so a KakaoAdHide started later quits.
 pub fn single_instance() -> Option<std::fs::File> {
     if let Some(old) = open_old_lock() {
         if !lock(&old) { return None; }
