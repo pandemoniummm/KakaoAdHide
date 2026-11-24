@@ -61,6 +61,7 @@ fn main() {
     {
         let _ = quiet;
         if platform::offer_move_to_applications() { return; }
+        platform::migrate_old();
         let Some(_lock) = platform::single_instance() else { return };
         ui::run(has("--run"));
     }

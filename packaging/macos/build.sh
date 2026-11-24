@@ -1,13 +1,15 @@
 #!/bin/bash
-# Builds KakaoAdHide.app (universal: Apple silicon + Intel) and, with --dmg, dist/KakaoAdHide-macos.dmg.
+# Builds TalkNap.app (universal: Apple silicon + Intel) and, with --dmg, dist/TalkNap.dmg.
 # Needs Rust (rustup, with the aarch64-apple-darwin and x86_64-apple-darwin targets) and the Xcode Command
 # Line Tools.
 #
-#   packaging/macos/build.sh                      ad-hoc signed app in target/KakaoAdHide.app (local testing)
-#   packaging/macos/build.sh --dmg                ... plus dist/KakaoAdHide-macos.dmg
+#   packaging/macos/build.sh                      ad-hoc signed app in target/TalkNap.app (local testing)
+#   packaging/macos/build.sh --dmg                ... plus dist/TalkNap.dmg
 #   packaging/macos/build.sh --version 1.2.0      override VERSION (the release workflow checks it matches the tag)
-#   packaging/macos/build.sh --sign-p12 <file> --sign-password-file <file>
-#                                       sign with the release certificate (tools/new-macos-signing-cert.sh);
+#   packaging/macos/build.sh --sign-p12 ~/.keys/talknap-macos-signing.p12 \
+#                            --sign-password-file ~/.keys/talknap-macos-signing.password
+#                                       sign with the release certificate, "TalkNap Code Signing"
+#                                       (tools/new-macos-signing-cert.sh --name TalkNap);
 #                                       or set MACOS_SIGNING_P12 (base64) and MACOS_SIGNING_PASSWORD (CI)
 #
 # Ad-hoc builds run, but they cannot install updates signed with the release certificate (nor be installed by
@@ -67,8 +69,8 @@ if [[ -n "$p12" ]]; then
   while IFS= read -r k; do k="${k#"${k%%[![:space:]]*}"}"; k="${k#\"}"; k="${k%\"}"; [[ -n "$k" ]] && search_list+=("$k"); done \
     < <(security list-keychains -d user)
   security list-keychains -d user -s "$keychain" "${search_list[@]}"
-  identity="$(security find-identity -p codesigning "$keychain" | awk '/KakaoAdHide Code Signing/ {print $2; exit}')"
-  [[ -n "$identity" ]] || { echo "no 'KakaoAdHide Code Signing' identity in $p12" >&2; exit 1; }
+  identity="$(security find-identity -p codesigning "$keychain" | awk '/TalkNap Code Signing/ {print $2; exit}')"
+  [[ -n "$identity" ]] || { echo "no 'TalkNap Code Signing' identity in $p12" >&2; exit 1; }
 fi
 
 sign() {
@@ -88,7 +90,7 @@ for target in aarch64-apple-darwin x86_64-apple-darwin; do
   bins+=("$repo/target/$target/release/TalkNap")
 done
 
-app="$repo/target/KakaoAdHide.app"
+app="$repo/target/TalkNap.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 lipo -create -output "$app/Contents/MacOS/TalkNap" "${bins[@]}"
@@ -96,7 +98,7 @@ sed "s/__VERSION__/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
 [[ -f "$here/AppIcon.icns" ]] && cp "$here/AppIcon.icns" "$app/Contents/Resources/"
 printf 'APPL????' > "$app/Contents/PkgInfo"
 
-sign --identifier io.github.pandemoniummm.KakaoAdHide "$app"
+sign --identifier io.github.pandemoniummm.TalkNap "$app"
 codesign --verify --strict --deep "$app"
 echo "built $app (version $version, signed: $([[ "$identity" == "-" ]] && echo ad-hoc || echo "$identity"))"
 
@@ -116,10 +118,10 @@ hdiutil_retry() {
 if [[ "$make_dmg" == 1 ]]; then
   dist="$repo/dist"
   mkdir -p "$dist"
-  dmg="$dist/KakaoAdHide-macos.dmg"
+  dmg="$dist/TalkNap.dmg"
   stage="$tmp/stage"
   mkdir -p "$stage"
-  ditto "$app" "$stage/KakaoAdHide.app"
+  ditto "$app" "$stage/TalkNap.app"
   ln -s /Applications "$stage/Applications"
   [[ -f "$here/AppIcon.icns" ]] && cp "$here/AppIcon.icns" "$stage/.VolumeIcon.icns"
   # the window's background (assets/dmg-background.svg, 1x and 2x in one TIFF)
@@ -131,7 +133,7 @@ if [[ "$make_dmg" == 1 ]]; then
   # compressed. Without Finder (no GUI session, or no permission to script it) the image still works, with a
   # plain window.
   rw="$tmp/rw.dmg"
-  volname="KakaoAdHide $version"
+  volname="TalkNap $version"
   hdiutil_retry create -volname "$volname" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$rw"
   mnt="/Volumes/$volname"
   [[ -e "$mnt" ]] && { echo "$mnt is already mounted: eject it first" >&2; exit 1; }
@@ -153,7 +155,7 @@ on run argv
         set icon size of o to 96
         set text size of o to 13
         set background picture of o to file ".background:background.tiff"
-        set position of item "KakaoAdHide.app" to {140, 165}
+        set position of item "TalkNap.app" to {140, 165}
         set position of item "Applications" to {400, 165}
         update without registering applications
         delay 1

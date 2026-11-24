@@ -9,7 +9,7 @@
 	<key>CFBundleExecutable</key>
 	<string>TalkNap</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.pandemoniummm.KakaoAdHide</string>
+	<string>io.github.pandemoniummm.TalkNap</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
