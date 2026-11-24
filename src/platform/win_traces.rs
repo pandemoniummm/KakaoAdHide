@@ -162,7 +162,15 @@ pub fn clean_user() {
     clean_typed_paths(&root);
 
     let old_lnk = format!("{}.lnk", crate::platform::OLD_APP);
-    clean_values_at(&root, &format!(r"{explorer}\StartupApproved\StartupFolder"), |n| n.eq_ignore_ascii_case(&old_lnk));
+    let approved = format!(r"{explorer}\StartupApproved\StartupFolder");
+    // Turned off in Task Manager's startup apps: the new shortcut keeps that choice (unless it has its own).
+    if let Some(k) = open_rw(&root, &approved) {
+        let new_lnk = format!("{}.lnk", crate::platform::APP);
+        if k.get_raw_value(&new_lnk).is_err() {
+            if let Ok(v) = k.get_raw_value(&old_lnk) { let _ = k.set_raw_value(&new_lnk, &v); }
+        }
+    }
+    clean_values_at(&root, &approved, |n| n.eq_ignore_ascii_case(&old_lnk));
     clean_values_at(&root, r"Software\Microsoft\Windows\CurrentVersion\RunNotification", |n| n.eq_ignore_ascii_case(&format!("StartupTNoti{old_lnk}")));
     let id = "pandemoniummm.KakaoAdHide";
     for base in [r"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings", r"Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup"] {
