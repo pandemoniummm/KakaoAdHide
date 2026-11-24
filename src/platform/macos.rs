@@ -253,7 +253,7 @@ fn move_item(from: &Path, to: &Path) -> bool {
 /// again at the next start.
 fn move_old_data() {
     let (old, new) = (old_data_dir(), data_dir());
-    if !old.is_absolute() || !old.is_dir() || old == new { return; }
+    if !old.is_absolute() || !old.is_dir() || old == new || old_copy_running() { return; }
     if std::fs::create_dir_all(&new).is_err() { return; }
     for name in ["certs", "settings.json"] {
         let (from, to) = (old.join(name), new.join(name));
@@ -268,7 +268,7 @@ fn remove_old_apps(running: &Path) {
     for folder in [PathBuf::from("/Applications"), home().join("Applications")] {
         let app = folder.join(OLD_APP_NAME);
         if !app.is_absolute() || app.as_path() == running || !app.is_dir() || !is_old_app(&bundle_id_of(&app)) { continue; }
-        let stopped = Command::new("/usr/bin/pkill").arg("-f").arg(format!("^{}/Contents/MacOS/", app.display()))
+        let stopped = Command::new("/usr/bin/pkill").arg("-f").arg(format!("^{}/Contents/MacOS/", regex_escape(&app.display().to_string())))
             .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
             .status().map(|s| s.success()).unwrap_or(false);
         // let it exit (and free port 443) before our server starts
@@ -277,14 +277,24 @@ fn remove_old_apps(running: &Path) {
     }
 }
 
+/// `s` as a literal in an extended regular expression (pkill -f).
+fn regex_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if r"\.^$|?*+()[]{}".contains(c) { out.push('\\'); }
+        out.push(c);
+    }
+    out
+}
+
 /// The login item (issue #15): KakaoAdHide's LaunchAgent opens the old app, which is gone after the update, so
 /// it is replaced by ours. Ours is rewritten when it opens another path (the app was moved). With neither, the
 /// user turned it off: left off. Login Items the user added in System Settings are not touched.
 fn move_login_item(app: &Path) {
     let old = launch_agent_for(OLD_BUNDLE_ID);
     if old.exists() {
-        let _ = std::fs::remove_file(&old);
-        let _ = set_login_item(true);
+        // ours first: if it can't be written, the old one stays (it still says the user wants it on)
+        if set_login_item(true).is_ok() { let _ = std::fs::remove_file(&old); }
     } else if let Ok(plist) = std::fs::read_to_string(launch_agent()) {
         if !plist_points_to(&plist, app) { let _ = set_login_item(true); }
     }
@@ -319,14 +329,38 @@ pub fn migrate_old() {
     remove_old_traces();
 }
 
-/// Held for the life of the process: a second instance finds it locked and quits.
-pub fn single_instance() -> Option<std::fs::File> {
+/// Takes an exclusive lock on `f` without waiting: false when another process holds it.
+fn lock(f: &std::fs::File) -> bool {
     use std::os::fd::AsRawFd;
-    let _ = std::fs::create_dir_all(data_dir());
-    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(data_dir().join("lock")).ok()?;
     extern "C" { fn flock(fd: i32, op: i32) -> i32; }
     const LOCK_EX: i32 = 2; const LOCK_NB: i32 = 4;
-    (unsafe { flock(f.as_raw_fd(), LOCK_EX | LOCK_NB) } == 0).then_some(f)
+    unsafe { flock(f.as_raw_fd(), LOCK_EX | LOCK_NB) == 0 }
+}
+
+/// KakaoAdHide's lock file (2.6.0 and earlier take the same kind of lock on it while they run), opened if it
+/// exists. None when there is none or it can't be opened: then no old copy is counted as running.
+fn open_old_lock() -> Option<std::fs::File> {
+    let path = old_data_dir().join("lock");
+    if !path.is_absolute() { return None; }
+    std::fs::OpenOptions::new().write(true).open(path).ok()
+}
+
+/// A KakaoAdHide is running (holds its lock).
+fn old_copy_running() -> bool { open_old_lock().is_some_and(|f| !lock(&f)) }
+
+/// Held for the life of the process: a second instance finds it locked and quits. A running KakaoAdHide counts as
+/// a first instance too (it serves the blank ad on port 443 with its own certificate): then this one quits, as a
+/// second KakaoAdHide did. That only happens when this copy isn't the installed one (run from the disk image):
+/// migrate_old has stopped the installed old app before. The old lock, when there is one, is held as well, so a
+/// KakaoAdHide started later quits.
+pub fn single_instance() -> Option<std::fs::File> {
+    if let Some(old) = open_old_lock() {
+        if !lock(&old) { return None; }
+        std::mem::forget(old);   // kept locked for the life of the process
+    }
+    let _ = std::fs::create_dir_all(data_dir());
+    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(data_dir().join("lock")).ok()?;
+    lock(&f).then_some(f)
 }
 
 pub fn open_url(url: &str) { let _ = Command::new("/usr/bin/open").arg(url).spawn(); }
@@ -344,8 +378,9 @@ pub fn uninstall(_quiet: bool) -> Result<(), String> {
     let r = setup::undo();
     let _ = set_login_item(false);
     let _ = std::fs::remove_file(launch_agent_for(OLD_BUNDLE_ID));
-    let _ = std::fs::remove_dir_all(data_dir());
-    let _ = std::fs::remove_dir_all(old_data_dir());
+    for dir in [data_dir(), old_data_dir()] {
+        if dir.is_absolute() { let _ = std::fs::remove_dir_all(dir); }
+    }
     if let Some(app) = bundle_path() {
         let _ = Command::new("/usr/bin/osascript")
             .arg("-e").arg("on run argv\n tell application \"Finder\" to delete (POSIX file (item 1 of argv) as alias)\nend run")
@@ -753,6 +788,12 @@ mod tests {
         assert_ne!(old_data_dir(), data_dir());
         assert!(data_dir().ends_with("TalkNap") && old_data_dir().ends_with("KakaoAdHide"));
         assert_ne!(launch_agent_for(OLD_BUNDLE_ID), launch_agent());
+    }
+
+    #[test]
+    fn pkill_pattern_is_literal() {
+        assert_eq!(regex_escape("/Applications/KakaoAdHide.app"), r"/Applications/KakaoAdHide\.app");
+        assert_eq!(regex_escape("/Users/a (b)/[x]+$"), r"/Users/a \(b\)/\[x\]\+\$");
     }
 
     #[test]
