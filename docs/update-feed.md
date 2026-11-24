@@ -4,10 +4,10 @@
 
 | 플랫폼 | 업데이트 정보 (2.6.0부터) | 받는 파일 | 확인 코드 |
 |---|---|---|---|
-| Windows | `feed-windows.json` | `KakaoAdHide-windows.exe` | `src/feed.rs`, `src/updater.rs`, `src/platform/windows.rs` |
-| macOS | `feed-macos.json` | `KakaoAdHide-macos.dmg` | `src/feed.rs`, `src/updater.rs`, `src/platform/macos.rs` |
+| Windows | `feed-windows.json` | `TalkNap.exe` | `src/feed.rs`, `src/updater.rs`, `src/platform/windows.rs` |
+| macOS | `feed-macos.json` | `TalkNap.dmg` | `src/feed.rs`, `src/updater.rs`, `src/platform/macos.rs` |
 
-앱은 `https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/<업데이트 정보>`를 읽습니다. 이 주소는 공개된 최신 릴리스만 가리키고, 초안은 가리키지 않습니다.
+앱은 `https://github.com/pandemoniummm/TalkNap/releases/latest/download/<업데이트 정보>`를 읽습니다(2.6.0은 옛 주소 `.../KakaoAdHide/...`를 읽고, GitHub가 새 저장소로 넘겨 줍니다). 이 주소는 공개된 최신 릴리스만 가리키고, 초안은 가리키지 않습니다.
 
 > 옛 버전 호환: 2.5.2는 `update-windows.json`·`update-macos.json`을, 2.5.1 이하는 `latest-windows.json`·`latest-macos.json`을 읽습니다. 이 파일들은 각각 브릿지 버전의 것으로 고정해 두고 릴리스마다 그대로 다시 올립니다. 그래서 옛 버전도 브릿지 버전을 거쳐 최신 버전까지 올라옵니다([2.5.2](#브릿지-버전-252), [2.6.0](#브릿지-버전-260)).
 
@@ -16,11 +16,11 @@
 ```json
 {
   "version":   "1.1.0",
-  "url":       "https://github.com/pandemoniummm/KakaoAdHide/releases/download/v1.1.0/KakaoAdHide-macos.dmg",
+  "url":       "https://github.com/pandemoniummm/TalkNap/releases/download/v1.1.0/TalkNap.dmg",
   "size":      1234567,
   "sha256":    "<받는 파일의 SHA-256, 16진수 소문자>",
   "signature_ed25519": "<base64>",
-  "page":      "https://github.com/pandemoniummm/KakaoAdHide/releases/tag/v1.1.0",
+  "page":      "https://github.com/pandemoniummm/TalkNap/releases/tag/v1.1.0",
   "units":     ["DAN-FTsOAPU4yZ6oHLGy"],
   "units_signature": "<base64>"
 }
@@ -56,6 +56,15 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 - 그래서 2.5.2는 `update-*.json`으로 2.6.0에 올라오고, 2.6.0부터는 `feed-*.json`을 따라 최신 버전으로 갑니다.
 - 옛 문구는 앱 코드에 없습니다. `tools/feed-sign`에만 남아 브릿지 파일을 서명합니다.
 
+### 2.7.0: 이름을 TalkNap으로
+
+2.7.0은 저장소 이름과 릴리스 파일 이름을 바꿨지만, 서명·피드 이름은 그대로라 새 브릿지 파일이 필요 없습니다.
+
+- 2.6.0은 옛 주소(`.../KakaoAdHide/releases/latest/download/feed-*.json`)를 읽고, GitHub가 새 저장소 `TalkNap`으로 넘겨 줍니다. 그래서 **`KakaoAdHide`라는 저장소를 다시 만들지 않습니다.**
+- 새 피드의 `url`은 `.../TalkNap/releases/download/…/TalkNap.exe`(또는 `TalkNap.dmg`)입니다. 2.6.0은 새 주소 접두사와 `TalkNap.app`(새 번들 ID, "TalkNap Code Signing")을 이미 받아 줍니다.
+- 릴리스 CI가 공개 전에 실제 v2.6.0 exe·앱의 `--verify-update`로 새 피드와 새 파일을 확인합니다.
+- `update-*.json`, `latest-*.json`은 그대로 다시 올립니다. 이 파일이 가리키는 v2.5.2·v2.6.0 릴리스의 옛 이름 파일(`KakaoAdHide-windows.exe` 등)도 그대로 둡니다.
+
 ## 광고 자리 ID 목록
 
 카카오톡이 하단 배너의 광고 자리 ID(`DAN-…`)를 바꾸면 내장 배너가 다시 보입니다. 새 버전을 내지 않고 고칠 수 있게, 업데이트 정보에 ID 목록(`units`)을 따로 서명해서 싣습니다(2.5.0부터 읽음).
@@ -78,24 +87,25 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 
 공통 (하나라도 틀리면 설치하지 않고 릴리스 페이지를 안내):
 
-1. `url`이 `https://github.com/pandemoniummm/KakaoAdHide/releases/download/`로 시작(2.6.0부터는 새 저장소 이름 `.../TalkNap/releases/download/`도 허용)
+1. `url`이 `https://github.com/pandemoniummm/TalkNap/releases/download/`(`ASSET_PREFIX`)로 시작. 옛 주소 `.../KakaoAdHide/releases/download/`(`OLD_ASSET_PREFIX`)도 허용(`ASSET_PREFIXES`. 2.6.0은 이 둘을 허용함)
 2. 받은 파일의 크기와 SHA-256이 JSON과 같음
 3. `signature_ed25519`가 공개키 중 하나로 검증됨
 4. `version`이 지금 버전보다 높음
 
 macOS는 여기에 더해 dmg 안의 앱을 확인합니다.
 
-5. dmg를 읽기 전용으로 마운트하고, 볼륨 바로 아래의 `KakaoAdHide.app`(바로가기가 아닌 실제 폴더)을 복사. 2.6.0부터는 `TalkNap.app`이 있으면 그것을 복사
-6. 번들 ID `io.github.pandemoniummm.KakaoAdHide`, 버전이 JSON의 `version`과 같음. `TalkNap.app`은 번들 ID `io.github.pandemoniummm.TalkNap`만 받음
-7. 코드 서명이 번들 전체에서 유효하고, 릴리스 인증서(`KakaoAdHide Code Signing`, SHA-1은 `src/platform/macos.rs`)로 서명됨. `TalkNap.app`은 `TalkNap Code Signing` 인증서(`SIGNING_CERT_SHA1_TALKNAP`)만 받음
+5. dmg를 읽기 전용으로 마운트하고, 볼륨 바로 아래의 `TalkNap.app`(바로가기가 아닌 실제 폴더)을 복사. (2.6.0은 `TalkNap.app`이 있으면 그것을, 없으면 `KakaoAdHide.app`을 복사)
+6. 번들 ID `io.github.pandemoniummm.TalkNap`, 버전이 JSON의 `version`과 같음. 2.7.0은 이 짝만 받음
+7. 코드 서명이 번들 전체에서 유효하고, 릴리스 인증서(`TalkNap Code Signing`, SHA-1은 `src/platform/macos.rs`의 `SIGNING_CERT_SHA1`)로 서명됨
 
-그다음 앱이 종료되면 별도 스크립트가 새 앱을 옆에 복사하고 바꿔 끼웁니다. 실패하면 이전 앱을 되돌려 놓고, 어느 쪽이든 다시 실행합니다. 새 앱이 `TalkNap.app`이면(2.6.0부터) 같은 폴더에 `TalkNap.app`으로 넣고 `KakaoAdHide.app`을 지웁니다. 실패하면 `KakaoAdHide.app`을 그대로 둡니다.
+그다음 앱이 종료되면 별도 스크립트가 새 앱을 옆에 복사하고 바꿔 끼웁니다. 실패하면 이전 앱을 되돌려 놓고, 어느 쪽이든 다시 실행합니다. 2.6.0에서 올라올 때는 같은 폴더에 `TalkNap.app`으로 넣고 `KakaoAdHide.app`을 지웁니다. 실패하면 `KakaoAdHide.app`을 그대로 둡니다.
 
 ## 릴리스 워크플로의 확인
 
-- Windows: 만든 exe가 `--verify-feed feed-windows.json KakaoAdHide-windows.exe`로 직접 확인 (exe에 들어간 버전과 JSON 버전이 같은지도 확인)
-- macOS: dmg에서 꺼낸 앱이 `--verify-feed feed-macos.json KakaoAdHide-macos.dmg`로 직접 확인 (위 1~7을 사용자와 같은 코드로 실행)
+- Windows: 만든 exe가 `--verify-feed feed-windows.json TalkNap.exe`로 직접 확인 (exe에 들어간 버전과 JSON 버전이 같은지도 확인)
+- macOS: dmg에서 꺼낸 앱이 `--verify-feed feed-macos.json TalkNap.dmg`로 직접 확인 (위 1~7을 사용자와 같은 코드로 실행)
 - 브릿지 버전 릴리스에서는 브릿지 파일도 확인합니다: 2.5.2는 `latest-*.json`, 2.6.0은 `update-*.json`(`feed-sign verify --legacy`). 그 뒤 릴리스는 고정본 `update-*.json`을 복사하기 전에 v2.6.0 릴리스의 패키지를 받아 `feed-sign verify --legacy`로 다시 확인합니다. `latest-*.json`은 확인하지 않습니다(버전이 다름).
+- 실제 v2.6.0 앱으로 새 릴리스를 확인(공개 전, CI): v2.6.0 릴리스의 `KakaoAdHide-windows.exe`와 `KakaoAdHide-macos.dmg`(안의 `KakaoAdHide.app`)를 내려받아 새 `feed-*.json`과 `TalkNap.exe`·`TalkNap.dmg`를 `--verify-update`로 확인합니다. 설치된 2.6.0이 이 릴리스를 받는다는 증거입니다.
 - 설치된(옛) 버전으로 새 릴리스를 확인: `--verify-update <feed-*.json> <패키지>`. `--verify-feed`와 같은 확인(목록 서명 포함)이지만 JSON 버전이 그 앱 버전과 **같거나 높으면** 됩니다(2.6.0부터. 종료 코드 0 확인됨, 3 확인 실패, 4 버전이 낮거나 읽을 수 없음, 1 그 밖의 오류).
 
 ## macOS 코드 서명 인증서
@@ -103,6 +113,7 @@ macOS는 여기에 더해 dmg 안의 앱을 확인합니다.
 자체 서명 인증서라 무료지만, 처음 실행할 때 "그래도 열기"가 필요합니다. 업데이트는 이 인증서로 서명된 앱만 설치합니다.
 
 - 만들기: `tools/new-macos-signing-cert.sh` (개인키는 `~/.keys/`, 저장소 밖)
-- CI 등록: `tools/new-macos-signing-cert.sh --set-secret` → `MACOS_SIGNING_P12`, `MACOS_SIGNING_PASSWORD`
-- 2.6.0부터 `TalkNap.app`은 따로 만든 `TalkNap Code Signing` 인증서(`tools/new-macos-signing-cert.sh --name TalkNap`, `SIGNING_CERT_SHA1_TALKNAP`)로 서명된 것만 받습니다.
+- CI 등록: `tools/new-macos-signing-cert.sh --set-secret` → `MACOS_SIGNING_P12_TALKNAP`, `MACOS_SIGNING_PASSWORD_TALKNAP`
+- 인증서 이름은 `TalkNap Code Signing`(`SIGNING_CERT_SHA1`)이고, 2.7.0은 이 인증서로 서명된 `TalkNap.app`만 받습니다.
+- 옛 인증서 `KakaoAdHide Code Signing`(`tools/new-macos-signing-cert.sh --name KakaoAdHide`, 시크릿 `MACOS_SIGNING_P12`·`MACOS_SIGNING_PASSWORD`)은 2.7.0을 내고 확인하기 전까지 2.6.x 패치를 서명할 때만 씁니다.
 - **인증서를 바꾸면** 설치된 앱이 새 버전을 거부합니다(수동 업데이트 필요). 나중에 Apple Developer ID로 옮길 때는, 먼저 두 서명을 모두 받아들이는 버전(`src/platform/macos.rs`의 `requirement`에 팀 ID 추가)을 내보낸 다음에 서명을 바꿉니다.

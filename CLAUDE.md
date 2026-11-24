@@ -1,10 +1,11 @@
 # CLAUDE.md
 
-낮잠(TalkNap, 예전 이름 KakaoAdHide): 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. 사용자에게 보이는 이름은 한글 "낮잠", 영어 "TalkNap"이고, 아래 "바꾸면 안 되는 것"의 내부 이름은 KakaoAdHide 그대로 둡니다. hosts로 광고 주소를 127.0.0.1로 보내고, 자체 서명 인증서로 443 포트에서 빈 광고를 돌려줍니다. 구조·빌드·릴리스 절차는 [docs/development.md](docs/development.md), 업데이트 피드는 [docs/update-feed.md](docs/update-feed.md), 실측한 카카오톡 구조는 [docs/kakaotalk.md](docs/kakaotalk.md)에 있습니다. 카카오톡에서 새로 알아낸 것은 kakaotalk.md에 적습니다. 여기에는 그 문서에 없는 작업 규칙만 적습니다.
+TalkNap(예전 이름 KakaoAdHide): 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. 앱 이름은 한국어 화면에서도 "TalkNap"입니다. "낮잠"은 README·사이트의 소개 문구에만 씁니다("카카오톡 광고 칸에 낮잠을"). 2.7.0부터 파일·레지스트리·번들 ID까지 모두 TalkNap이고, 옛 KakaoAdHide는 옮기기 코드가 알아보는 이름으로만 남아 있습니다(아래 "옮기기용으로 남겨 둔 옛 이름"). hosts로 광고 주소를 127.0.0.1로 보내고, 자체 서명 인증서로 443 포트에서 빈 광고를 돌려줍니다. 구조·빌드·릴리스 절차는 [docs/development.md](docs/development.md), 업데이트 피드는 [docs/update-feed.md](docs/update-feed.md), 실측한 카카오톡 구조는 [docs/kakaotalk.md](docs/kakaotalk.md)에 있습니다. 카카오톡에서 새로 알아낸 것은 kakaotalk.md에 적습니다. 여기에는 그 문서에 없는 작업 규칙만 적습니다.
 
 ## 사용자와 일하는 규칙
 
 - 답은 항상 한국어로 합니다.
+- `main`은 보호돼 있어 PR로만 바꿉니다(승인 0명). 작업은 `wip/<내용>` 브랜치에서 하고, PR을 열어 합칩니다. 합친 브랜치는 자동으로 지워집니다.
 - 결제, Apple Developer 가입, 릴리스 공개, 강제 푸시처럼 되돌리기 어렵거나 밖으로 나가는 일은 하기 전에 묻습니다.
 - 커밋·푸시는 사용자가 요청할 때만 합니다.
 - 커밋 메시지는 한국어로 씁니다(제목과 본문 모두).
@@ -25,22 +26,34 @@
 
 설치된 옛 버전이 계속 업데이트를 받을 수 있어야 합니다. 다음은 바꾸지 않습니다.
 
-- 업데이트 피드 이름 `feed-windows.json`, `feed-macos.json`(2.6.0부터). 옛 이름 `update-*.json`(2.5.2부터)은 2.6.0 브릿지 버전으로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [docs/update-feed.md](docs/update-feed.md#브릿지-버전-260))
-- 더 옛 이름 `latest-*.json`은 2.5.2 브릿지 버전으로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [docs/update-feed.md](docs/update-feed.md#브릿지-버전-252))
+- 업데이트 피드 이름 `feed-windows.json`, `feed-macos.json`(2.6.0부터). 브릿지 파일 `update-*.json`(2.5.2가 읽음)과 `latest-*.json`(2.5.1 이하가 읽음)은 각각 2.6.0·2.5.2 릴리스의 것으로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [update-*.json](docs/update-feed.md#브릿지-버전-260), [latest-*.json](docs/update-feed.md#브릿지-버전-252))
 - 업데이트 서명: `src/keys.rs`의 Ed25519 공개키(2.5.1부터)
 - 서명 문구: 앱은 `TalkNap\n…`, `TalkNap-units\n…`(2.6.0부터). 옛 문구 `KakaoAdHide\n…`, `KakaoAdHide-units\n…`는 `update-*.json` 브릿지용으로 `tools/feed-sign`의 `--legacy`에만 남깁니다.
-- 내려받기 주소 앞부분 `ASSET_PREFIXES`(옛 저장소 이름과 TalkNap 저장소 이름, 2.6.0부터)
-- 설치 경로, 레지스트리 위치, 뮤텍스 `Local\KakaoAdHide`, 종료 이벤트 `Local\KakaoAdHide.Quit`
+- 내려받기 주소 앞부분 `ASSET_PREFIXES`(새 TalkNap 저장소 주소와 옛 KakaoAdHide 주소, 둘 다 받음)
+- Windows(2.7.0부터): `%LOCALAPPDATA%\TalkNap\TalkNap.exe`, 시작 프로그램 `TalkNap.lnk`, `HKCU\Software\TalkNap`, `…\Uninstall\TalkNap`, AppUserModelID `pandemoniummm.TalkNap`, 뮤텍스 `Local\TalkNap`, 종료 이벤트 `Local\TalkNap.Quit`
 - 명령줄 옵션 `--run`, `--uninstall`, `--update`, `--quiet`
-- macOS: 코드 서명 인증서(`SIGNING_CERT_SHA1`). 바꾸면 설치된 앱이 업데이트를 거부합니다.
-- macOS(2.6.0부터): `TALKNAP_APP_NAME`, `TALKNAP_BUNDLE_ID`, `SIGNING_CERT_SHA1_TALKNAP`("TalkNap Code Signing" 인증서, 맥의 `~/.keys/talknap-macos-signing.*`). 2.6.0은 이 짝의 `TalkNap.app`만 받습니다.
-- macOS 서명을 나중에 바꾸면(예: Developer ID) 2.6.0이 업데이트를 받지 못합니다. 2.6.0은 늘 최신 `feed-*.json`을 읽으므로, 새 피드 이름으로 브릿지 버전을 하나 더 만들어야 합니다.
-- 내부 이름 `KakaoAdHide`: 설치 폴더·exe·앱 번들 파일 이름, 번들 ID, 인증서 이름(`KakaoAdHide local ad server`), hosts 표시 줄, 릴리스 파일 이름. 화면에 보이는 이름만 낮잠으로 바꿉니다.
+- macOS(2.7.0부터): `TalkNap.app`, 번들 ID `io.github.pandemoniummm.TalkNap`, 코드 서명 인증서 "TalkNap Code Signing"(`SIGNING_CERT_SHA1`, 맥의 `~/.keys/talknap-macos-signing.*`). 이 셋의 짝인 `TalkNap.app`만 업데이트로 받습니다. **인증서를 바꾸면 설치된 앱이 업데이트를 거부합니다.**
+- macOS 서명을 나중에 바꾸면(예: Developer ID) 설치된 앱이 업데이트를 받지 못합니다. 설치된 앱은 늘 최신 `feed-*.json`을 읽으므로, 새 피드 이름으로 브릿지 버전을 하나 더 만들어야 합니다.
+- 저장소 이름은 `TalkNap`입니다. `KakaoAdHide`라는 저장소를 다시 만들지 않습니다. 2.6.0은 옛 주소가 새 저장소로 리디렉트돼서 업데이트를 받는데, 같은 이름의 새 저장소가 생기면 그 리디렉트가 끊깁니다.
+
+## 옮기기용으로 남겨 둔 옛 이름 (정리 버전 전까지 지우지 않음)
+
+2.6.x 이하에서 올라오는 PC를 찾아서 멈추고 옮기고 지우는 데만 씁니다. 코드에서는 `OLD_*` 상수입니다. 옛 버전이 모두 올라온 것을 확인한 뒤의 정리 버전에서 지웁니다.
+
+- Windows: `Local\KakaoAdHide`, `Local\KakaoAdHide.Quit`, `%LOCALAPPDATA%\KakaoAdHide`, `KakaoAdHide.lnk`, `HKCU\Software\KakaoAdHide`, `…\Uninstall\KakaoAdHide`, `pandemoniummm.KakaoAdHide`, `%TEMP%\KakaoAdHide-update`
+- macOS: 번들 ID `OLD_BUNDLE_ID`(`io.github.pandemoniummm.KakaoAdHide`), `KakaoAdHide.app`
+- 인증서 CN `KakaoAdHide local ad server`(새 인증서로 옮긴 뒤 지움)
+- hosts 줄 `# KakaoAdHide begin …` / `# KakaoAdHide end`(지움)
+- 광고 페이지 경로 `/kakaoadhide/menu`, `/kakaoadhide/state`(서버가 계속 받음. 광고 페이지를 이미 받아 둔 카카오톡이 옛 경로로 요청함)
+- `OLD_ASSET_PREFIX`(옛 저장소 주소의 내려받기 접두사)
+- macOS 옛 인증서 "KakaoAdHide Code Signing"(`tools/new-macos-signing-cert.sh --name KakaoAdHide`, 시크릿 `MACOS_SIGNING_P12`·`MACOS_SIGNING_PASSWORD`): 2.7.0을 내고 확인하기 전까지 2.6.x 패치를 낼 때만 필요합니다.
+- 브릿지 파일과 고정된 v2.5.2·v2.6.0 릴리스(옛 이름 `KakaoAdHide-windows.exe`·`KakaoAdHide-macos.dmg` 등)는 그대로 둡니다. 릴리스 CI가 이 파일로 브릿지 서명을 다시 확인하고, 실제 2.6.0 앱으로 새 피드를 확인합니다.
 
 ## 릴리스 방식
 
 - 두 플랫폼에서 확인을 마친 기능을 묶어 냅니다. 급한 버그만 바로 패치 버전으로 냅니다. 내기 전에 `확인 필요` 이슈와 기능표의 ⏳를 봅니다.
-- 태그를 푸시하면 CI가 초안(draft)까지 만듭니다. 공개는 사용자 확인을 받은 뒤 합니다(위 규칙).
+- 순서: PR 머리(head)에 태그를 달아 푸시 → CI가 초안(draft)까지 만듦 → 초안 확인 → 사용자 확인을 받고 공개(위 규칙) → 그다음에 PR을 합칩니다. 소개 페이지(Pages)는 main이 바뀔 때 배포되므로, 내려받기 파일이 올라간 뒤에 합쳐야 링크가 깨지지 않습니다.
+- 릴리스 CI는 실제 2.6.0 exe·앱의 `--verify-update`로 새 피드와 파일을 확인합니다(설치된 2.6.0이 이 릴리스를 받는다는 증거).
 
 ## 확인 방법
 
@@ -52,12 +65,12 @@
 
 ### macOS
 
-- 데이터 폴더: `~/Library/Application Support/KakaoAdHide`. 설정은 `settings.json`.
+- 데이터 폴더: `~/Library/Application Support/TalkNap`. 설정은 `settings.json`.
 - 릴리스 인증서로 빌드하고 설치:
   ```bash
-  packaging/macos/build.sh --sign-p12 ~/.keys/kakaoadhide-macos-signing.p12 --sign-password-file ~/.keys/kakaoadhide-macos-signing.password
-  pkill -f '/Applications/KakaoAdHide.app/Contents/MacOS/'; rm -rf /Applications/KakaoAdHide.app
-  ditto target/KakaoAdHide.app /Applications/KakaoAdHide.app && open /Applications/KakaoAdHide.app
+  packaging/macos/build.sh --sign-p12 ~/.keys/talknap-macos-signing.p12 --sign-password-file ~/.keys/talknap-macos-signing.password
+  pkill -f '/Applications/TalkNap.app/Contents/MacOS/'; rm -rf /Applications/TalkNap.app
+  ditto target/TalkNap.app /Applications/TalkNap.app && open /Applications/TalkNap.app
   ```
 - 카카오톡 번들 ID: `com.kakao.KakaoTalkMac`. 비활성 감지는 NSWorkspace 활성 앱 알림과, 카카오톡이 앞일 때 창 목록(메인 창 = 너비가 광고 칸과 같은 창)으로 합니다. 카카오톡 구조는 [docs/kakaotalk.md](docs/kakaotalk.md).
 - 번들 밖에서 띄운 rfd 대화상자는 UserNotificationCenter 창으로 남을 수 있습니다(`killall UserNotificationCenter`).
@@ -65,10 +78,11 @@
 
 ### Windows
 
-- 빌드·테스트: `cargo build --release`, `cargo test --release`, `cargo clippy --all-targets -- -D warnings`. 릴리스 CI는 `--locked`라, `VERSION`과 `Cargo.toml`을 올린 뒤 `cargo update -p kakaoadhide`를 돌립니다.
-- 설치·확인: 사용자가 자기 PowerShell에서 `target\release\KakaoAdHide.exe`를 실행합니다(실행 중인 것을 멈추고 바꿔 끼움). 카카오톡은 완전히 다시 켜야(트레이 → 종료) 빈 광고를 다시 받습니다.
+- 빌드·테스트: `cargo build --release`, `cargo test --release`, `cargo clippy --all-targets -- -D warnings`. 릴리스 CI는 `--locked`라, `VERSION`과 `Cargo.toml`을 올린 뒤 `cargo update -p talknap`을 돌립니다.
+- 설치·확인: 사용자가 자기 PowerShell에서 `target\release\TalkNap.exe`를 실행합니다(실행 중인 것을 멈추고 바꿔 끼움). 카카오톡은 완전히 다시 켜야(트레이 → 종료) 빈 광고를 다시 받습니다.
 - Claude가 띄운 프로세스는 사용자의 로컬 인증서를 보지 못합니다. **카카오톡을 직접 다시 켜지 않습니다**(내장 배너로 바뀌고 `server.log`에 CertificateUnknown이 남음).
-- Claude는 `%LOCALAPPDATA%\KakaoAdHide\server.log` 읽기, 창 목록, 화면 캡처, 클릭으로 잴 수 있습니다. 모니터별 DPI 인식(`SetProcessDpiAwarenessContext -4`)을 켭니다(보조 모니터 150 %).
+- **Claude는 자기 셸에서 앱을 설치하거나 실행하지 않습니다**(`TalkNap.exe`도 옛 `KakaoAdHide.exe`도). Claude의 셸은 MSIX 가상화 아래라 `%LOCALAPPDATA%`·`HKCU`가 가짜로 보이고, 가짜 설치가 생기거나 진짜 루트 인증서가 등록될 수 있습니다. 앱은 사용자가 자기 PowerShell에서 실행합니다. Claude는 `cargo build/test/clippy`만 합니다.
+- Claude는 `%LOCALAPPDATA%\TalkNap\server.log` 읽기, 창 목록, 화면 캡처, 클릭으로 잴 수 있습니다. 모니터별 DPI 인식(`SetProcessDpiAwarenessContext -4`)을 켭니다(보조 모니터 150 %).
 - 카카오톡 창: 메인은 클래스 `EVA_Window_Dblclk`, 제목 `카카오톡`. 광고 칸은 메인이 소유한 별도 최상위 창입니다. 메인 창 자체가 포그라운드가 아니면(채팅방, 광고 칸 클릭, 우리 메뉴) 사이드바가 흐려집니다. 카카오톡은 광고 페이지에 활성 신호를 보내지 않습니다(확인함).
 - 광고 페이지는 WebView2 `ReadyToListen`에 `AdLoaded {result:true}`로 답하고, 응답에 `status`·`id`·`content`·`events`와 Content-Type `application/json`이 있어야 합니다. 아니면 내장 배너가 뜹니다. `ad-units/windows.txt`(와 업데이트 정보의 서명된 목록)의 자리만 빈 광고를 받고, 다른 자리는 `ads: []`. 자세한 건 [docs/kakaotalk.md](docs/kakaotalk.md).
 - Windows 카카오톡은 다크 모드가 없고, 시스템이 다크여도 웹뷰는 라이트로 그립니다. Windows에는 다크 CSS를 넣지 않습니다(`DARK_MODE`).

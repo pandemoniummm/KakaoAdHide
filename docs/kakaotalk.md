@@ -6,7 +6,7 @@
 
 ## 광고 요청
 
-- 광고 서버 주소는 `serv.ds.kakao.com`과 `display.ad.daum.net`입니다. KakaoAdHide는 hosts에서 두 주소를 127.0.0.1로 보냅니다. 실제 요청은 `serv.ds.kakao.com`으로만 왔습니다.
+- 광고 서버 주소는 `serv.ds.kakao.com`과 `display.ad.daum.net`입니다. TalkNap은 hosts에서 두 주소를 127.0.0.1로 보냅니다. 실제 요청은 `serv.ds.kakao.com`으로만 왔습니다.
 - 광고 목록 요청: `GET /sdk/banner?…`. 쿼리 값은 다음과 같습니다(Windows. macOS는 아래 표 다음에 적음).
 
   | 값 | 예 | 뜻 |
@@ -48,8 +48,9 @@ ID 목록은 `ad-units/<플랫폼>.txt`에 있습니다. 앱에 들어가고, �
   | 광고의 `type`(`banner`) | 없어도 됨(보내지 않음) | 필요 |
   | `options.ext.refreshInterval` | 없어도 됨 | 없어도 됨 |
 
-  - KakaoAdHide는 필요한 필드에 더해 `events`, `mimeType`, `refreshInterval`을 두 플랫폼 모두 보냅니다. `refreshInterval`은 다시 요청하는 간격을 정하므로 빼면 간격이 바뀔 수 있습니다. `type`은 macOS에만 보냅니다(Windows 응답은 확인한 그대로 둠).
+  - TalkNap은 필요한 필드에 더해 `events`, `mimeType`, `refreshInterval`을 두 플랫폼 모두 보냅니다. `refreshInterval`은 다시 요청하는 간격을 정하므로 빼면 간격이 바뀔 수 있습니다. `type`은 macOS에만 보냅니다(Windows 응답은 확인한 그대로 둠).
   - 나머지(`feedback`, `dspId`, `bidId`, `etxId`, `cid`, `crid`, `adid`, `width`, `height`, 다른 `options`)는 두 플랫폼 모두 확인하지 않습니다.
+- **빈 광고가 앱에 보내는 요청**: 메뉴 버튼은 `https://serv.ds.kakao.com/talknap/menu?t=<토큰>`, 활성 상태 스트림은 `/talknap/state?t=<토큰>`으로 요청합니다(2.7.0부터. 그 전에는 `/kakaoadhide/menu`, `/kakaoadhide/state`). 카카오톡은 받아 둔 광고 페이지를 다시 켤 때까지 그대로 쓰므로, 서버는 옛 경로도 계속 받습니다(정리 버전에서 지움).
 
 ## 광고 웹뷰 (Windows)
 
