@@ -1,0 +1,12 @@
+{
+  "version": "2.6.0",
+  "url": "https://github.com/pandemoniummm/KakaoAdHide/releases/download/v2.6.0/KakaoAdHide-macos.dmg",
+  "size": 2609725,
+  "sha256": "0bb004f90546916b7cc6c8b4631f8f5d74c0623ee9167e20114f985ef60e0e71",
+  "page": "https://github.com/pandemoniummm/KakaoAdHide/releases/tag/v2.6.0",
+  "signature_ed25519": "ahRqXsdWkDLTsLHr3zmjgqiOX7MSEvBVE5yLzk2a6SvgJxjrSNr6Y63xg8Y8iOAkcNQvVIolNwNQlILgoTFJDA==",
+  "units": [
+    "DAN-ECTpSP1g9fCcyreq"
+  ],
+  "units_signature": "t/oa3bcwu8iWoyYqGGbYkfpDyDY94mNP2vwnFBF+9pOLKtNNMQdK/OBid1XxmmkTB8NORIyT/ONmiMzqFnwjBQ=="
+}

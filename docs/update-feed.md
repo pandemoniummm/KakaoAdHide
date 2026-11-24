@@ -9,7 +9,7 @@
 
 앱은 `https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/<업데이트 정보>`를 읽습니다. 이 주소는 공개된 최신 릴리스만 가리키고, 초안은 가리키지 않습니다.
 
-> 옛 버전 호환: 2.5.2는 `update-windows.json`·`update-macos.json`을, 2.5.1 이하는 `latest-windows.json`·`latest-macos.json`을 읽습니다. 이 파일들은 각각 징검다리 버전의 것으로 고정해 두고 릴리스마다 그대로 다시 올립니다. 그래서 옛 버전도 징검다리를 거쳐 최신 버전까지 올라옵니다([2.5.2](#징검다리-252), [2.6.0](#징검다리-260)).
+> 옛 버전 호환: 2.5.2는 `update-windows.json`·`update-macos.json`을, 2.5.1 이하는 `latest-windows.json`·`latest-macos.json`을 읽습니다. 이 파일들은 각각 브릿지 버전의 것으로 고정해 두고 릴리스마다 그대로 다시 올립니다. 그래서 옛 버전도 브릿지 버전을 거쳐 최신 버전까지 올라옵니다([2.5.2](#브릿지-버전-252), [2.6.0](#브릿지-버전-260)).
 
 ## JSON
 
@@ -38,7 +38,7 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 - 개인키(PKCS#8, base64): 주 키는 GitHub Secret `SIGNING_KEY_ED25519`(CI가 서명), 예비 키는 오프라인 보관. `tools/feed-sign`이 만들고 서명합니다([development.md](development.md#처음-한-번-업데이트-서명-키)).
 - `feed-sign`은 서명한 뒤 `src/keys.rs`의 키로 다시 확인하고 나서야 파일을 씁니다. 앱과 같은 `src/feed.rs`를 그대로 가져다 씁니다.
 
-### 징검다리 (2.5.2)
+### 브릿지 버전 (2.5.2)
 
 서명 방식이나 업데이트 정보 이름을 바꿀 때, 옛 버전이 끊기지 않게 한 버전을 거쳐 가게 합니다.
 
@@ -46,15 +46,15 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 - **2.5.2 릴리스**만 `latest-*.json`을 RSA와 Ed25519로 함께 서명해 만들었습니다. 그 두 파일이 `packaging/bridge/`에 그대로 들어 있고, 그 뒤 릴리스는 CI가 이 파일을 **바꾸지 않고** 다시 올립니다. 2.5.2의 exe·dmg는 바뀌지 않으니 다시 서명할 필요가 없습니다. 이 파일은 고치지 않습니다(서명이 깨짐).
 - 그래서 2.5.1 이하는 먼저 2.5.2로 올라오고, 2.5.2는 `update-*.json`을 따라 2.6.0(아래)으로 갑니다.
 - 2.5.2 다음부터 RSA 서명 코드와 키는 없습니다. RSA는 이제 `packaging/bridge/`의 서명된 파일 두 개에만 남아 있습니다.
-- 다음에 또 바꿀 일이 생기면 같은 방법을 씁니다: 새 방식을 아는 버전을 옛 방식으로도 서명해 징검다리로 내고, 옛 업데이트 정보를 그 버전에 고정합니다.
+- 다음에 또 바꿀 일이 생기면 같은 방법을 씁니다: 새 방식을 아는 버전을 옛 방식으로도 서명해 브릿지 버전으로 내고, 옛 업데이트 정보를 그 버전에 고정합니다.
 
-### 징검다리 (2.6.0)
+### 브릿지 버전 (2.6.0)
 
 2.6.0부터 앱은 `feed-*.json`을 `TalkNap` 서명 문구로 확인합니다. 2.5.2는 옛 문구(`KakaoAdHide\n…`)로 `update-*.json`을 확인하므로, 같은 방법으로 한 버전을 거쳐 갑니다.
 
 - **2.6.0 릴리스**가 `update-*.json`을 옛 문구(`KakaoAdHide`)로 서명해 만들고, 이 파일이 2.6.0을 가리킵니다. 그 두 파일은 `packaging/bridge/`에 고정하고, 그 뒤 릴리스는 CI가 **바꾸지 않고** 다시 올립니다. 2.6.0의 exe·dmg는 바뀌지 않으니 다시 서명할 필요가 없습니다.
 - 그래서 2.5.2는 `update-*.json`으로 2.6.0에 올라오고, 2.6.0부터는 `feed-*.json`을 따라 최신 버전으로 갑니다.
-- 옛 문구는 앱 코드에 없습니다. `tools/feed-sign`에만 남아 징검다리 파일을 서명합니다.
+- 옛 문구는 앱 코드에 없습니다. `tools/feed-sign`에만 남아 브릿지 파일을 서명합니다.
 
 ## 광고 자리 ID 목록
 
@@ -69,7 +69,7 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 **ID가 바뀌었을 때**
 
 1. `server.log`에서 새 `[DAN-…]`를 확인하고 `ad-units/<플랫폼>.txt`에 추가해 main에 푸시합니다(옛 ID는 남겨 둡니다).
-2. Actions → `units` → Run workflow. 최신 릴리스의 `feed-*.json`에 새 목록을 서명해 다시 올립니다(`feed-sign units`). 2.5.2가 읽는 `update-*.json`에도 옛 문구로 같은 목록을 다시 서명합니다(`--legacy`). 가장 옛 징검다리 `latest-*.json`은 건드리지 않습니다.
+2. Actions → `units` → Run workflow. 최신 릴리스의 `feed-*.json`에 새 목록을 서명해 다시 올립니다(`feed-sign units`). 2.5.2가 읽는 `update-*.json`에도 옛 문구로 같은 목록을 다시 서명합니다(`--legacy`). 가장 옛 브릿지 파일 `latest-*.json`은 건드리지 않습니다.
 3. 설치된 앱은 다음 업데이트 확인 때(시작 1분 뒤, 그 뒤 하루 한 번) 목록을 받습니다. 카카오톡을 다시 켜면 빈 광고가 돌아옵니다.
 
 릴리스 때는 CI가 같은 도구로 목록을 함께 서명합니다.
@@ -95,7 +95,7 @@ macOS는 여기에 더해 dmg 안의 앱을 확인합니다.
 
 - Windows: 만든 exe가 `--verify-feed feed-windows.json KakaoAdHide-windows.exe`로 직접 확인 (exe에 들어간 버전과 JSON 버전이 같은지도 확인)
 - macOS: dmg에서 꺼낸 앱이 `--verify-feed feed-macos.json KakaoAdHide-macos.dmg`로 직접 확인 (위 1~7을 사용자와 같은 코드로 실행)
-- 징검다리 릴리스에서는 징검다리 파일도 확인합니다: 2.5.2는 `latest-*.json`, 2.6.0은 `update-*.json`(`feed-sign verify --legacy`). 그 뒤 릴리스는 고정본 `update-*.json`을 복사하기 전에 v2.6.0 릴리스의 패키지를 받아 `feed-sign verify --legacy`로 다시 확인합니다. `latest-*.json`은 확인하지 않습니다(버전이 다름).
+- 브릿지 버전 릴리스에서는 브릿지 파일도 확인합니다: 2.5.2는 `latest-*.json`, 2.6.0은 `update-*.json`(`feed-sign verify --legacy`). 그 뒤 릴리스는 고정본 `update-*.json`을 복사하기 전에 v2.6.0 릴리스의 패키지를 받아 `feed-sign verify --legacy`로 다시 확인합니다. `latest-*.json`은 확인하지 않습니다(버전이 다름).
 - 설치된(옛) 버전으로 새 릴리스를 확인: `--verify-update <feed-*.json> <패키지>`. `--verify-feed`와 같은 확인(목록 서명 포함)이지만 JSON 버전이 그 앱 버전과 **같거나 높으면** 됩니다(2.6.0부터. 종료 코드 0 확인됨, 3 확인 실패, 4 버전이 낮거나 읽을 수 없음, 1 그 밖의 오류).
 
 ## macOS 코드 서명 인증서

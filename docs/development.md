@@ -12,7 +12,7 @@ Rust 하나로 두 플랫폼을 만듭니다.
 | `src/platform/` | `windows.rs`(설치·레지스트리·UAC·인증서 저장소), `macos.rs`(앱 번들·키체인·LaunchAgent) |
 | `packaging/` | `windows/build.ps1`, `macos/build.sh`(앱 번들·서명·dmg), `macos/Info.plist` |
 | `tools/` | 업데이트 정보 만들기·서명(`feed-sign/`, Ed25519), macOS 코드 서명 인증서 |
-| `packaging/bridge/` | 2.5.1 이하가 읽는 `latest-*.json`(2.5.2 징검다리, 고치지 않음) |
+| `packaging/bridge/` | 2.5.1 이하가 읽는 `latest-*.json`(2.5.2 브릿지 버전, 고치지 않음) |
 | `assets/` | 아이콘 원본: 앱 아이콘(`icon.svg`), 선 아이콘(`icon-line.svg`, 사이드바 버튼과 트레이 모양) |
 | `tools/icon-gen/` | `icon.svg`에서 `packaging/windows/app.ico`, `packaging/macos/AppIcon.icns`, `assets/icon-256.png`을, `dmg-background.svg`에서 dmg 창 배경(`packaging/macos/dmg-background*.png`)을 만드는 도구 |
 | `ad-units/` | 빈 광고를 줄 하단 배너의 광고 자리 ID(플랫폼별). 앱에 들어가고 업데이트 정보에도 서명해 실음 |
@@ -132,7 +132,7 @@ tools/new-macos-signing-cert.sh --set-secret
    ```
 4. GitHub Actions가 두 플랫폼 빌드 → 업데이트 정보 서명 → 각 플랫폼 앱으로 서명 검증 → **초안(draft) 릴리스** 생성까지 합니다.
    올라가는 파일: `KakaoAdHide-windows.exe`, `feed-windows.json`, `update-windows.json`, `latest-windows.json`, `KakaoAdHide-macos.dmg`, `feed-macos.json`, `update-macos.json`, `latest-macos.json`, `SHA256SUMS.txt`
-   - `latest-*.json`은 2.5.1 이하가 읽는 징검다리로, `packaging/bridge/`의 파일을 그대로 올립니다([update-feed.md](update-feed.md#징검다리-252)).
+   - `latest-*.json`은 2.5.1 이하가 읽는 브릿지 파일로, `packaging/bridge/`의 파일을 그대로 올립니다([update-feed.md](update-feed.md#브릿지-버전-252)).
 5. 초안에 릴리스 노트를 쓰고 **Publish release**를 누르면, 그때부터 사용자에게 업데이트 알림이 갑니다.
 6. 2.6.0을 공개한 뒤 그 릴리스의 `update-windows.json`, `update-macos.json`을 `packaging/bridge/`에 넣고 커밋합니다(다음 릴리스 전에 꼭).
 

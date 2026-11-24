@@ -1,0 +1,12 @@
+{
+  "version": "2.6.0",
+  "url": "https://github.com/pandemoniummm/KakaoAdHide/releases/download/v2.6.0/KakaoAdHide-windows.exe",
+  "size": 2045952,
+  "sha256": "674c144bdac205a1c573c2e3412cc4676c13c58a6bd2083fdf4699b37012923c",
+  "page": "https://github.com/pandemoniummm/KakaoAdHide/releases/tag/v2.6.0",
+  "signature_ed25519": "1RwqkVqzyONWn2P06gVQz9mA7DIpIecNNPiGvraMEVe8g5qA14gUfnpQ+8AbO+ABgDi/XD2xmkwUhDPM5qdMAg==",
+  "units": [
+    "DAN-FTsOAPU4yZ6oHLGy"
+  ],
+  "units_signature": "X+acOZ1ZyYgq0vd2pQHYZ8QdBjF8mNDt21SKWLI1h5sPwKTwqS/JQehCBnfULz6xmcyEi197JOzAfomwdYXlDg=="
+}

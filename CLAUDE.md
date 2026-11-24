@@ -25,16 +25,16 @@
 
 설치된 옛 버전이 계속 업데이트를 받을 수 있어야 합니다. 다음은 바꾸지 않습니다.
 
-- 업데이트 피드 이름 `feed-windows.json`, `feed-macos.json`(2.6.0부터). 옛 이름 `update-*.json`(2.5.2부터)은 2.6.0 징검다리로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [docs/update-feed.md](docs/update-feed.md#징검다리-260))
-- 더 옛 이름 `latest-*.json`은 2.5.2 징검다리로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [docs/update-feed.md](docs/update-feed.md#징검다리-252))
+- 업데이트 피드 이름 `feed-windows.json`, `feed-macos.json`(2.6.0부터). 옛 이름 `update-*.json`(2.5.2부터)은 2.6.0 브릿지 버전으로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [docs/update-feed.md](docs/update-feed.md#브릿지-버전-260))
+- 더 옛 이름 `latest-*.json`은 2.5.2 브릿지 버전으로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [docs/update-feed.md](docs/update-feed.md#브릿지-버전-252))
 - 업데이트 서명: `src/keys.rs`의 Ed25519 공개키(2.5.1부터)
-- 서명 문구: 앱은 `TalkNap\n…`, `TalkNap-units\n…`(2.6.0부터). 옛 문구 `KakaoAdHide\n…`, `KakaoAdHide-units\n…`는 `update-*.json` 징검다리용으로 `tools/feed-sign`의 `--legacy`에만 남깁니다.
+- 서명 문구: 앱은 `TalkNap\n…`, `TalkNap-units\n…`(2.6.0부터). 옛 문구 `KakaoAdHide\n…`, `KakaoAdHide-units\n…`는 `update-*.json` 브릿지용으로 `tools/feed-sign`의 `--legacy`에만 남깁니다.
 - 내려받기 주소 앞부분 `ASSET_PREFIXES`(옛 저장소 이름과 TalkNap 저장소 이름, 2.6.0부터)
 - 설치 경로, 레지스트리 위치, 뮤텍스 `Local\KakaoAdHide`, 종료 이벤트 `Local\KakaoAdHide.Quit`
 - 명령줄 옵션 `--run`, `--uninstall`, `--update`, `--quiet`
 - macOS: 코드 서명 인증서(`SIGNING_CERT_SHA1`). 바꾸면 설치된 앱이 업데이트를 거부합니다.
 - macOS(2.6.0부터): `TALKNAP_APP_NAME`, `TALKNAP_BUNDLE_ID`, `SIGNING_CERT_SHA1_TALKNAP`("TalkNap Code Signing" 인증서, 맥의 `~/.keys/talknap-macos-signing.*`). 2.6.0은 이 짝의 `TalkNap.app`만 받습니다.
-- macOS 서명을 나중에 바꾸면(예: Developer ID) 2.6.0이 업데이트를 받지 못합니다. 2.6.0은 늘 최신 `feed-*.json`을 읽으므로, 새 피드 이름으로 징검다리를 하나 더 만들어야 합니다.
+- macOS 서명을 나중에 바꾸면(예: Developer ID) 2.6.0이 업데이트를 받지 못합니다. 2.6.0은 늘 최신 `feed-*.json`을 읽으므로, 새 피드 이름으로 브릿지 버전을 하나 더 만들어야 합니다.
 - 내부 이름 `KakaoAdHide`: 설치 폴더·exe·앱 번들 파일 이름, 번들 ID, 인증서 이름(`KakaoAdHide local ad server`), hosts 표시 줄, 릴리스 파일 이름. 화면에 보이는 이름만 낮잠으로 바꿉니다.
 
 ## 릴리스 방식
