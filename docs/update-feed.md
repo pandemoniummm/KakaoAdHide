@@ -2,14 +2,14 @@
 
 두 플랫폼은 같은 형식, 같은 서명 방식, 같은 공개키로 업데이트를 확인합니다. 릴리스 워크플로의 서명 단계(`tools/feed-sign`) 하나가 두 파일을 모두 만듭니다.
 
-| 플랫폼 | 업데이트 정보 (2.5.2부터) | 받는 파일 | 확인 코드 |
+| 플랫폼 | 업데이트 정보 (2.6.0부터) | 받는 파일 | 확인 코드 |
 |---|---|---|---|
-| Windows | `update-windows.json` | `KakaoAdHide-windows.exe` | `src/feed.rs`, `src/updater.rs`, `src/platform/windows.rs` |
-| macOS | `update-macos.json` | `KakaoAdHide-macos.dmg` | `src/feed.rs`, `src/updater.rs`, `src/platform/macos.rs` |
+| Windows | `feed-windows.json` | `KakaoAdHide-windows.exe` | `src/feed.rs`, `src/updater.rs`, `src/platform/windows.rs` |
+| macOS | `feed-macos.json` | `KakaoAdHide-macos.dmg` | `src/feed.rs`, `src/updater.rs`, `src/platform/macos.rs` |
 
 앱은 `https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/<업데이트 정보>`를 읽습니다. 이 주소는 공개된 최신 릴리스만 가리키고, 초안은 가리키지 않습니다.
 
-> 옛 버전 호환: 2.5.1 이하는 `latest-windows.json`·`latest-macos.json`을 읽습니다. 이 두 파일은 2.5.2(징검다리)의 것으로 고정해 두고 릴리스마다 그대로 다시 올립니다. 그래서 옛 버전도 2.5.2를 거쳐 최신 버전까지 올라옵니다([아래](#징검다리-252)).
+> 옛 버전 호환: 2.5.2는 `update-windows.json`·`update-macos.json`을, 2.5.1 이하는 `latest-windows.json`·`latest-macos.json`을 읽습니다. 이 파일들은 각각 징검다리 버전의 것으로 고정해 두고 릴리스마다 그대로 다시 올립니다. 그래서 옛 버전도 징검다리를 거쳐 최신 버전까지 올라옵니다([아래](#징검다리-252)).
 
 ## JSON
 
@@ -32,7 +32,7 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 
 - 필드: `signature_ed25519` (2.5.1부터)
 - 알고리즘: Ed25519
-- 서명 대상: `"KakaoAdHide\n" + version + "\n" + sha256` (UTF-8, sha256은 16진수 소문자)
+- 서명 대상: `"TalkNap\n" + version + "\n" + sha256` (UTF-8, sha256은 16진수 소문자). 2.6.0부터 앞머리가 `TalkNap`입니다. 옛 `KakaoAdHide` 앞머리 서명은 통과하지 못합니다.
 - 버전과 파일 해시를 함께 서명하므로, 옛 릴리스 파일을 새 버전인 척 내밀어 되돌리는(다운그레이드) 것을 막습니다.
 - 공개키 2개(주 키, 예비 키) 중 하나만 맞으면 통과합니다. 키는 `src/keys.rs`에 있습니다(32바이트, base64).
 - 개인키(PKCS#8, base64): 주 키는 GitHub Secret `SIGNING_KEY_ED25519`(CI가 서명), 예비 키는 오프라인 보관. `tools/feed-sign`이 만들고 서명합니다([development.md](development.md#처음-한-번-업데이트-서명-키)).
@@ -44,15 +44,23 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 
 - 1.0.0 ~ 2.5.0은 `latest-*.json`의 `signature`(RSA-3072, PKCS#1 v1.5, SHA-256, 서명 대상은 위와 같음)만 확인하고, 모르는 필드는 무시합니다. 2.5.1은 같은 파일의 `signature_ed25519`를 확인합니다.
 - **2.5.2 릴리스**만 `latest-*.json`을 RSA와 Ed25519로 함께 서명해 만들었습니다. 그 두 파일이 `packaging/bridge/`에 그대로 들어 있고, 그 뒤 릴리스는 CI가 이 파일을 **바꾸지 않고** 다시 올립니다. 2.5.2의 exe·dmg는 바뀌지 않으니 다시 서명할 필요가 없습니다. 이 파일은 고치지 않습니다(서명이 깨짐).
-- 그래서 2.5.1 이하는 먼저 2.5.2로 올라오고, 2.5.2부터는 `update-*.json`을 따라 최신 버전으로 갑니다.
+- 그래서 2.5.1 이하는 먼저 2.5.2로 올라오고, 2.5.2는 `update-*.json`을 따라 2.6.0(아래)으로 갑니다.
 - 2.5.2 다음부터 RSA 서명 코드와 키는 없습니다. RSA는 이제 `packaging/bridge/`의 서명된 파일 두 개에만 남아 있습니다.
 - 다음에 또 바꿀 일이 생기면 같은 방법을 씁니다: 새 방식을 아는 버전을 옛 방식으로도 서명해 징검다리로 내고, 옛 업데이트 정보를 그 버전에 고정합니다.
+
+### 징검다리 (2.6.0)
+
+2.6.0부터 앱은 `feed-*.json`을 `TalkNap` 서명 문구로 확인합니다. 2.5.2는 옛 문구(`KakaoAdHide\n…`)로 `update-*.json`을 확인하므로, 같은 방법으로 한 버전을 거쳐 갑니다.
+
+- **2.6.0 릴리스**가 `update-*.json`을 옛 문구(`KakaoAdHide`)로 서명해 만들고, 이 파일이 2.6.0을 가리킵니다. 그 두 파일은 `packaging/bridge/`에 고정하고, 그 뒤 릴리스는 CI가 **바꾸지 않고** 다시 올립니다. 2.6.0의 exe·dmg는 바뀌지 않으니 다시 서명할 필요가 없습니다.
+- 그래서 2.5.2는 `update-*.json`으로 2.6.0에 올라오고, 2.6.0부터는 `feed-*.json`을 따라 최신 버전으로 갑니다.
+- 옛 문구는 앱 코드에 없습니다. `tools/feed-sign`에만 남아 징검다리 파일을 서명합니다.
 
 ## 광고 자리 ID 목록
 
 카카오톡이 하단 배너의 광고 자리 ID(`DAN-…`)를 바꾸면 내장 배너가 다시 보입니다. 새 버전을 내지 않고 고칠 수 있게, 업데이트 정보에 ID 목록(`units`)을 따로 서명해서 싣습니다(2.5.0부터 읽음).
 
-- 서명 대상: `"KakaoAdHide-units\n" + 플랫폼 + "\n" + ID들을 "\n"으로 이은 것` (UTF-8). 플랫폼은 `windows` 또는 `macos`라, 한쪽 목록을 다른 쪽에 쓸 수 없습니다. 키와 알고리즘은 위 서명과 같습니다(Ed25519). 2.5.0은 이 서명을 RSA로 확인하므로 목록을 무시하고, 앱에 들어 있는 목록만 씁니다.
+- 서명 대상: `"TalkNap-units\n" + 플랫폼 + "\n" + ID들을 "\n"으로 이은 것` (UTF-8). 플랫폼은 `windows` 또는 `macos`라, 한쪽 목록을 다른 쪽에 쓸 수 없습니다. 키와 알고리즘은 위 서명과 같습니다(Ed25519). 2.5.0은 이 서명을 RSA로 확인하므로 목록을 무시하고, 앱에 들어 있는 목록만 씁니다.
 - 버전 서명과 따로 서명하므로, 목록만 바꿔도 버전 서명은 그대로입니다. 2.5.0 이전 버전은 이 필드를 무시합니다.
 - 앱은 업데이트를 확인할 때마다 서명이 맞는 목록을 설정(`BannerUnits`)에 저장합니다. 이 목록은 앱에 들어 있는 목록(`ad-units/<플랫폼>.txt`)에 **더해서만** 씁니다. 서명이 틀리거나 ID 형식(`DAN-`와 영숫자, 20개 이하)이 아니면 무시합니다.
 - Windows만 씁니다. macOS는 모든 자리에 빈 광고를 주므로 아직 쓰지 않습니다.

@@ -1,10 +1,10 @@
 //! Update check and download (the install step is per platform).
 //!
-//! A minute after start and then once a day the latest release's update-<platform>.json is read. Nothing is
+//! A minute after start and then once a day the latest release's feed-<platform>.json is read. Nothing is
 //! downloaded until the user picks the update. Then the package is downloaded, checked against the signed feed
 //! (feed.rs) and installed by the platform: Windows runs the new exe, which installs itself like KakaoAdHide
 //! 1.0.0's did; macOS also checks the app's code signature and swaps the bundle (platform::install_update).
-//! Requests carry only "User-Agent: KakaoAdHide/<version>".
+//! Requests carry only "User-Agent: TalkNap/<version>".
 //!
 //! The feed may also carry the bottom banner's ad placement ids, signed on their own; verified ones are kept in
 //! the BannerUnits setting (banner::is_bottom_banner).
@@ -42,7 +42,7 @@ impl fmt::Display for InstallError {
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(60)))
-        .user_agent(format!("KakaoAdHide/{VERSION}"))
+        .user_agent(format!("TalkNap/{VERSION}"))
         .build()
         .into()
 }

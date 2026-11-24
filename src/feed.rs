@@ -1,12 +1,13 @@
-//! The update feed (update-windows.json / update-macos.json, from 2.5.2) and its verification.
+//! The update feed (feed-windows.json / feed-macos.json, from 2.6.0) and its verification.
 //!
-//! Copies before 2.5.2 read latest-<platform>.json instead. Every release after 2.5.2 carries the 2.5.2 release's
-//! latest-*.json unchanged (packaging/bridge/), so those copies first update to 2.5.2 and then follow this feed.
+//! Copies before 2.6.0 read update-<platform>.json (2.5.2) or latest-<platform>.json (before 2.5.2) instead. Those
+//! files stay pinned to the bridge releases (packaging/bridge/), so those copies first update to the bridge and
+//! then follow this feed.
 //!
 //! See docs/update-feed.md:
 //!   - the download link must point into this repository's releases,
 //!   - size and SHA-256 must match the feed,
-//!   - the feed's Ed25519 signature (`signature_ed25519`) over "KakaoAdHide\n<version>\n<sha256 hex>" (UTF-8)
+//!   - the feed's Ed25519 signature (`signature_ed25519`) over "TalkNap\n<version>\n<sha256 hex>" (UTF-8)
 //!     must verify with one of the public keys in keys.rs.
 //!
 
@@ -26,7 +27,7 @@ pub const ASSET_PREFIXES: &[&str] = &[ASSET_PREFIX, "https://github.com/pandemon
 pub const RELEASES_PAGE: &str = "https://github.com/pandemoniummm/KakaoAdHide/releases/latest";
 
 pub fn feed_url(platform: &str) -> String {
-    format!("https://github.com/{REPO}/releases/latest/download/update-{platform}.json")
+    format!("https://github.com/{REPO}/releases/latest/download/feed-{platform}.json")
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -42,7 +43,7 @@ pub struct Feed {
     #[serde(default)]
     pub page: Option<String>,
     /// The bottom banner's ad placement ids, signed on their own (`units_message`, Ed25519): KakaoTalk may change
-    /// the id without a new KakaoAdHide release (#10). Copies before 2.5.0 ignore the fields.
+    /// the id without a new release (#10). Copies before 2.5.0 ignore the fields.
     #[serde(default)]
     pub units: Vec<String>,
     #[serde(default)]
@@ -111,13 +112,13 @@ impl PartialOrd for Version { fn partial_cmp(&self, o: &Self) -> Option<Ordering
 impl Ord for Version { fn cmp(&self, o: &Self) -> Ordering { self.0.cmp(&o.0) } }
 
 pub fn signed_message(version: &str, sha256_hex: &str) -> Vec<u8> {
-    format!("KakaoAdHide\n{version}\n{}", sha256_hex.to_ascii_lowercase()).into_bytes()
+    format!("TalkNap\n{version}\n{}", sha256_hex.to_ascii_lowercase()).into_bytes()
 }
 
-/// What `units_signature` signs: "KakaoAdHide-units\n<platform>\n<id>\n<id>…" (UTF-8). The platform is in it so
+/// What `units_signature` signs: "TalkNap-units\n<platform>\n<id>\n<id>…" (UTF-8). The platform is in it so
 /// one platform's list can't be passed off as the other's.
 pub fn units_message(platform: &str, units: &[String]) -> Vec<u8> {
-    let mut m = format!("KakaoAdHide-units\n{platform}");
+    let mut m = format!("TalkNap-units\n{platform}");
     for u in units { m.push('\n'); m.push_str(u); }
     m.into_bytes()
 }
@@ -145,7 +146,7 @@ pub fn signature_valid(version: &str, sha256_hex: &str, signature: &str, keys: &
 }
 
 /// Ed25519 `signature` (base64) over `msg`, with any of `keys` (base64, 32 bytes).
-fn ed25519_valid(msg: &[u8], signature: &str, keys: &[&str]) -> bool {
+pub fn ed25519_valid(msg: &[u8], signature: &str, keys: &[&str]) -> bool {
     let Ok(sig) = base64::engine::general_purpose::STANDARD.decode(signature.trim()) else { return false };
     keys.iter()
         .filter_map(|k| base64::engine::general_purpose::STANDARD.decode(k).ok().filter(|k| k.len() == 32))
@@ -236,8 +237,26 @@ mod tests {
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
         f.url = "https://github.com/pandemoniummm/TalkNapX/releases/download/v1/x.exe".into();
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
-        // the 2.5.2+ feed; latest-*.json stays the 2.5.2 bridge for older copies
-        assert_eq!(feed_url("macos"), "https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/update-macos.json");
+        // the 2.6.0+ feed; update-*.json stays pinned for 2.5.2
+        assert_eq!(feed_url("macos"), "https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/feed-macos.json");
+    }
+
+    #[test]
+    fn messages_use_the_new_name() {
+        assert_eq!(signed_message("2.6.0", "AB"), b"TalkNap\n2.6.0\nab".to_vec());
+        assert_eq!(units_message("macos", &["DAN-a".into()]), b"TalkNap-units\nmacos\nDAN-a".to_vec());
+        assert_eq!(feed_url("windows"), "https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/feed-windows.json");
+    }
+
+    #[test]
+    fn old_name_signatures_fail() {
+        let (k, public) = test_key();
+        let keys = [public.as_str()];
+        let old = B64.encode(k.sign(format!("KakaoAdHide\n2.6.0\n{SHA}").as_bytes()).as_ref());
+        assert!(!signature_valid("2.6.0", SHA, &old, &keys));
+        let units = vec!["DAN-a".to_string()];
+        let old_units = B64.encode(k.sign(b"KakaoAdHide-units\nwindows\nDAN-a").as_ref());
+        assert!(!units_signature_valid("windows", &units, &old_units, &keys));
     }
 
     #[test]
