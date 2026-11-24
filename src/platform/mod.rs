@@ -7,6 +7,8 @@ mod macos;
 pub use macos::*;
 
 #[cfg(windows)]
+mod win_traces;
+#[cfg(windows)]
 mod windows;
 #[cfg(windows)]
 pub use windows::*;

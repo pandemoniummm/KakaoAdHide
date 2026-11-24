@@ -154,6 +154,9 @@ pub fn hosts_elevated(add: bool) -> i32 {
     let Ok(current) = hosts::read() else { return 1 };
     let new = if add { hosts::add(&current) } else { hosts::remove(&current) };
     if new != current && std::fs::write(hosts::HOSTS_PATH, new).is_err() { return 1; }
+    // This run is the one UAC prompt of the move from KakaoAdHide: the machine-wide records of the old name go
+    // with its hosts block. Failures here don't change the result (the hosts file decides).
+    if add && hosts::has_old_block(&current) { super::win_traces::clean_admin(); }
     use std::os::windows::process::CommandExt;
     let _ = Command::new("ipconfig").arg("/flushdns").creation_flags(0x0800_0000).stdout(std::process::Stdio::null()).status();
     0
@@ -599,9 +602,14 @@ pub fn open_url(url: &str) {
 /// removing failed) is taken over now, before setup and the version note read it, and removed in the background
 /// (its exe may take up to 15 s). An old folder kept by files we don't know is checked again at every start.
 pub fn first_run() {
-    if !old_install_left() { return; }
-    let adopted = adopt_old_install();
-    std::thread::spawn(move || remove_old_install(adopted));
+    if old_install_left() {
+        let adopted = adopt_old_install();
+        std::thread::spawn(move || remove_old_install(adopted));
+    }
+    // Once: the records Windows keeps of the old name (after the adoption above, which needs our settings key empty).
+    if get("OldTracesCleaned").is_none() {
+        std::thread::spawn(|| { super::win_traces::clean_user(); set("OldTracesCleaned", Some("1")); });
+    }
 }
 pub fn login_item_enabled() -> bool { startup_lnk().exists() }
 pub fn set_login_item(_on: bool) -> Result<(), String> { Ok(()) }   // the Startup shortcut is part of the install
