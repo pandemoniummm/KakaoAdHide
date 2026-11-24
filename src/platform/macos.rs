@@ -102,10 +102,13 @@ fn old_certificate_hashes() -> Vec<String> {
 pub fn old_certificates_present() -> bool { !old_certificate_hashes().is_empty() }
 
 /// Deletes every old-CN certificate from the login keychain (-t also drops its user trust settings).
-/// Whether it worked is decided by looking again, not by the exit codes.
+/// Whether it worked is decided by looking again, not by the exit codes. macOS may ask for the password for each
+/// one: the first that is still there afterwards (declined) ends it, so the question doesn't come back; the next
+/// start asks again.
 pub fn remove_old_certificates() -> Result<(), String> {
     for hash in old_certificate_hashes() {
         let _ = Command::new("/usr/bin/security").args(["delete-certificate", "-Z", &hash, "-t"]).arg(login_keychain()).status();
+        if old_certificate_hashes().contains(&hash) { break; }
     }
     if old_certificates_present() { Err("옛 인증서를 지우지 못했습니다.".into()) } else { Ok(()) }
 }

@@ -115,21 +115,60 @@ pub fn old_certificates_present() -> bool {
     certutil(&[OsStr::new("-user"), OsStr::new("-store"), OsStr::new("Root"), OsStr::new(crate::certs::OLD_COMMON_NAME)])
 }
 
+/// How many old-CN certificates the user's trusted roots hold (at least 1 when certutil finds any, even if its
+/// listing couldn't be read).
+fn old_certificate_count() -> usize {
+    use std::os::windows::process::CommandExt;
+    let Ok(out) = Command::new("certutil").args(["-user", "-store", "Root", crate::certs::OLD_COMMON_NAME])
+        .creation_flags(0x0800_0000).stderr(std::process::Stdio::null()).output() else { return 0 };
+    if !out.status.success() { return 0; }
+    store_entries(&String::from_utf8_lossy(&out.stdout)).max(1)
+}
+
+/// The certificates in a `certutil -store` listing: each starts with a line like
+/// `================ Certificate 0 ================` (the word is translated, the equals signs aren't).
+fn store_entries(listing: &str) -> usize {
+    listing.lines().map(str::trim).filter(|l| l.len() > 32 && l.starts_with("================") && l.ends_with("================")).count()
+}
+
 /// Deletes every old-CN certificate (certutil removes one per call, and the same CN can be there several times).
+/// Windows asks to confirm each deletion: the first one declined (or one that removes nothing) ends it, so the
+/// question doesn't come back; the next start asks again.
 pub fn remove_old_certificates() -> Result<(), String> {
+    let mut left = old_certificate_count();
     for _ in 0..10 {
-        if !old_certificates_present() { return Ok(()); }
-        let _ = certutil(&[OsStr::new("-user"), OsStr::new("-delstore"), OsStr::new("Root"), OsStr::new(crate::certs::OLD_COMMON_NAME)]);
+        if left == 0 { return Ok(()); }
+        let deleted = certutil(&[OsStr::new("-user"), OsStr::new("-delstore"), OsStr::new("Root"), OsStr::new(crate::certs::OLD_COMMON_NAME)]);
+        let now = old_certificate_count();
+        if !deleted || now >= left { break; }
+        left = now;
     }
     if old_certificates_present() { Err("옛 인증서를 지우지 못했습니다.".into()) } else { Ok(()) }
 }
 
 // ---------------------------------------------------------------- hosts (administrator, via an elevated copy of us)
 
-/// Runs this exe elevated with --hosts-add / --hosts-remove (Windows shows the UAC prompt) and waits for it.
+/// Setting: the machine-wide records of the KakaoAdHide name are gone (`win_traces::clean_admin`).
+const OLD_ADMIN_TRACES_CLEANED: &str = "OldAdminTracesCleaned";
+
+/// The elevated run's arguments; `CLEAN_OLD_ARG` also cleans the machine-wide records of the old name. It is sent
+/// rather than read from the settings there: an elevated run as another (administrator) account has another HKCU.
+pub const CLEAN_OLD_ARG: &str = "--clean-old";
+
+fn hosts_args(add: bool, clean_old: bool) -> String {
+    match (add, clean_old) {
+        (true, true) => format!("--hosts-add {CLEAN_OLD_ARG}"),
+        (true, false) => "--hosts-add".into(),
+        (false, _) => "--hosts-remove".into(),
+    }
+}
+
+/// Runs this exe elevated with --hosts-add / --hosts-remove (Windows shows the UAC prompt) and waits for it. The
+/// first --hosts-add also cleans the machine-wide records of the old name (no UAC prompt of its own).
 pub fn set_hosts(add: bool) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let (verb, file, params) = (wide("runas"), wide(&exe.display().to_string()), wide(if add { "--hosts-add" } else { "--hosts-remove" }));
+    let clean_old = add && get(OLD_ADMIN_TRACES_CLEANED).is_none();
+    let (verb, file, params) = (wide("runas"), wide(&exe.display().to_string()), wide(&hosts_args(add, clean_old)));
     let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
     info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
     info.fMask = SEE_MASK_NOCLOSEPROCESS;
@@ -146,17 +185,20 @@ pub fn set_hosts(add: bool) -> Result<(), String> {
         GetExitCodeProcess(info.hProcess, &mut code);
         CloseHandle(info.hProcess);
     }
-    if code == 0 { Ok(()) } else { Err("hosts 파일을 바꾸지 못했습니다.".into()) }
+    if code != 0 { return Err("hosts 파일을 바꾸지 못했습니다.".into()); }
+    if clean_old { set(OLD_ADMIN_TRACES_CLEANED, Some("1")); }
+    Ok(())
 }
 
-/// The elevated half of set_hosts. Exit code 0 on success.
-pub fn hosts_elevated(add: bool) -> i32 {
+/// The elevated half of set_hosts. Exit code 0 on success. `clean_old`: also remove the machine-wide records of
+/// the old name (Prefetch, Tracing, PCA), once; set_hosts asks for it until it has been done, so an install that
+/// never had a KakaoAdHide hosts block (1.0.0) gets it too, with the same UAC prompt.
+pub fn hosts_elevated(add: bool, clean_old: bool) -> i32 {
     let Ok(current) = hosts::read() else { return 1 };
     let new = if add { hosts::add(&current) } else { hosts::remove(&current) };
     if new != current && std::fs::write(hosts::HOSTS_PATH, new).is_err() { return 1; }
-    // This run is the one UAC prompt of the move from KakaoAdHide: the machine-wide records of the old name go
-    // with its hosts block. Failures here don't change the result (the hosts file decides).
-    if add && hosts::has_old_block(&current) { super::win_traces::clean_admin(); }
+    // Failures here don't change the result (the hosts file decides).
+    if add && (clean_old || hosts::has_old_block(&current)) { super::win_traces::clean_admin(); }
     use std::os::windows::process::CommandExt;
     let _ = Command::new("ipconfig").arg("/flushdns").creation_flags(0x0800_0000).stdout(std::process::Stdio::null()).status();
     0
@@ -700,6 +742,24 @@ mod tests {
         let (_key, old, new) = TestKey::new("empty");
         assert!(!super::migrate_settings(&old, &new).unwrap());
         assert_eq!(new.enum_values().count(), 0);
+    }
+
+    #[test]
+    fn elevated_arguments() {
+        assert_eq!(super::hosts_args(true, true), "--hosts-add --clean-old");
+        assert_eq!(super::hosts_args(true, false), "--hosts-add");
+        assert_eq!(super::hosts_args(false, true), "--hosts-remove");
+    }
+
+    #[test]
+    fn store_listing_counts_certificates() {
+        let one = "Root \"Trusted Root Certification Authorities\"\r\n================ Certificate 0 ================\r\nSerial Number: 53\r\nIssuer: CN=KakaoAdHide local ad server\r\nCertUtil: -store command completed successfully.\r\n";
+        assert_eq!(super::store_entries(one), 1);
+        let two = "Root\n================ Certificate 0 ================\nx\n\n================ Certificate 1 ================\ny\n";
+        assert_eq!(super::store_entries(two), 2);
+        // a Korean listing read as lossy UTF-8 (the word isn't ASCII, the equals signs are)
+        assert_eq!(super::store_entries("================ \u{FFFD}\u{FFFD}\u{FFFD} 0 ================\r\n"), 1);
+        assert_eq!(super::store_entries("CertUtil: -store\n"), 0);
     }
 
     #[test]

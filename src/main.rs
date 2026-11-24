@@ -35,8 +35,8 @@ fn main() {
     }
     #[cfg(windows)]
     {
-        if has("--hosts-add") { std::process::exit(platform::hosts_elevated(true)); }
-        if has("--hosts-remove") { std::process::exit(platform::hosts_elevated(false)); }
+        if has("--hosts-add") { std::process::exit(platform::hosts_elevated(true, has(platform::CLEAN_OLD_ARG))); }
+        if has("--hosts-remove") { std::process::exit(platform::hosts_elevated(false, false)); }
         if has("--uninstall") {
             let r = platform::uninstall(quiet);
             std::process::exit(if r.is_ok() { 0 } else { 1 });
