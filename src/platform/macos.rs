@@ -89,6 +89,36 @@ pub fn untrust_certificate(p: &Paths) {
     }
 }
 
+/// SHA-1 hashes of the login keychain's certificates named like the old CN (`security find-certificate -Z`).
+fn old_certificate_hashes() -> Vec<String> {
+    let Ok(out) = Command::new("/usr/bin/security")
+        .args(["find-certificate", "-a", "-c", crate::certs::OLD_COMMON_NAME, "-Z"]).arg(login_keychain())
+        .stderr(std::process::Stdio::null()).output() else { return Vec::new() };
+    if !out.status.success() { return Vec::new(); }
+    String::from_utf8_lossy(&out.stdout).lines()
+        .filter_map(|l| l.trim().strip_prefix("SHA-1 hash:")).map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect()
+}
+
+/// True when the login keychain holds a certificate whose name is the old CN.
+pub fn old_certificates_present() -> bool { !old_certificate_hashes().is_empty() }
+
+/// Removes trust from and deletes every old-CN certificate in the login keychain.
+pub fn remove_old_certificates() -> Result<(), String> {
+    for hash in old_certificate_hashes() {
+        // remove-trusted-cert wants the certificate itself: take its PEM out by hash.
+        if let Ok(pem) = Command::new("/usr/bin/security").args(["find-certificate", "-Z", &hash, "-p"]).arg(login_keychain())
+            .stderr(std::process::Stdio::null()).output() {
+            let tmp = std::env::temp_dir().join(format!("TalkNap-old-{hash}.pem"));
+            if std::fs::write(&tmp, &pem.stdout).is_ok() {
+                let _ = Command::new("/usr/bin/security").arg("remove-trusted-cert").arg(&tmp).status();
+                let _ = std::fs::remove_file(&tmp);
+            }
+        }
+        let _ = Command::new("/usr/bin/security").args(["delete-certificate", "-Z", &hash]).arg(login_keychain()).status();
+    }
+    if old_certificates_present() { Err("옛 인증서를 지우지 못했습니다.".into()) } else { Ok(()) }
+}
+
 // ---------------------------------------------------------------- hosts (administrator)
 
 /// Writes the hosts file with or without our entries. macOS asks for an administrator password; only a fixed

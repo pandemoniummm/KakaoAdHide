@@ -87,6 +87,20 @@ pub fn untrust_certificate(p: &Paths) {
     if let Some(t) = thumbprint(p) { let _ = certutil(&[OsStr::new("-user"), OsStr::new("-delstore"), OsStr::new("Root"), OsStr::new(&t)]); }
 }
 
+/// True when the user's trusted roots hold a certificate whose name is the old CN (exit code 0; not found is nonzero).
+pub fn old_certificates_present() -> bool {
+    certutil(&[OsStr::new("-user"), OsStr::new("-store"), OsStr::new("Root"), OsStr::new(crate::certs::OLD_COMMON_NAME)])
+}
+
+/// Deletes every old-CN certificate (certutil removes one per call, and the same CN can be there several times).
+pub fn remove_old_certificates() -> Result<(), String> {
+    for _ in 0..10 {
+        if !old_certificates_present() { return Ok(()); }
+        let _ = certutil(&[OsStr::new("-user"), OsStr::new("-delstore"), OsStr::new("Root"), OsStr::new(crate::certs::OLD_COMMON_NAME)]);
+    }
+    if old_certificates_present() { Err("옛 인증서를 지우지 못했습니다.".into()) } else { Ok(()) }
+}
+
 // ---------------------------------------------------------------- hosts (administrator, via an elevated copy of us)
 
 /// Runs this exe elevated with --hosts-add / --hosts-remove (Windows shows the UAC prompt) and waits for it.
@@ -485,4 +499,17 @@ pub fn cleanup_update_temp() {
 
 pub fn verify_package(f: &Feed, exe: &Path) -> Result<(), VerifyError> {
     feed::verify_file(f, exe, keys::PUBLIC_KEYS)
+}
+
+#[cfg(test)]
+mod tests {
+    /// Touches the real certificate store: run by hand (`cargo test -- --ignored old_certificates`) only on a PC
+    /// with a throwaway old-CN test certificate in CurrentUser\Root, never where the real install is.
+    #[test]
+    #[ignore]
+    fn old_certificates() {
+        assert!(super::old_certificates_present());
+        super::remove_old_certificates().unwrap();
+        assert!(!super::old_certificates_present());
+    }
 }
