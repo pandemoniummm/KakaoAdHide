@@ -50,7 +50,7 @@ const OLD_NOTIFY_APP_ID: &str = "pandemoniummm.KakaoAdHide";
 /// Where an AppUserModelID's DisplayName and icon are registered.
 fn app_id_key(id: &str) -> String { format!(r"Software\Classes\AppUserModelId\{id}") }
 /// What KakaoAdHide put in its install folder besides its exe and `certs` (which is moved): removed with it.
-const OLD_FILES: [&str; 4] = ["server.log", "server.log.old", "icon.png", "hosts.new"];
+const OLD_FILES: [&str; 3] = ["server.log", "server.log.old", "icon.png"];
 
 fn wide(s: &str) -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() }
 fn env_dir(var: &str) -> PathBuf { PathBuf::from(std::env::var_os(var).unwrap_or_default()) }
@@ -264,7 +264,7 @@ pub fn install(quiet: bool) -> Result<(), String> {
     copied.map_err(|e| format!("설치하지 못했습니다: {e}"))?;
     // Before anything reads them: the old install's certificate (still trusted, so no new confirmation) and
     // settings (KakaoRun for release_kakao_autostart below, LastVersion for the "updated" message).
-    adopt_old_install();
+    let adopted = adopt_old_install();
     let mut lnk = mslnk::ShellLink::new(installed_exe()).map_err(|e| e.to_string())?;
     lnk.set_arguments(Some("--run".into()));
     lnk.set_working_dir(Some(install_dir().display().to_string()));
@@ -273,7 +273,7 @@ pub fn install(quiet: bool) -> Result<(), String> {
     release_kakao_autostart();
     register_notifications();
 
-    let (k, _)= RegKey::predef(HKEY_CURRENT_USER).create_subkey(UNINSTALL_KEY).map_err(|e| e.to_string())?;
+    let (k, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(UNINSTALL_KEY).map_err(|e| e.to_string())?;
     let exe = installed_exe().display().to_string();
     let _ = k.set_value("DisplayName", &"TalkNap (카카오톡 광고 칸 비우기)".to_string());
     let _ = k.set_value("DisplayVersion", &VERSION.to_string());
@@ -286,7 +286,7 @@ pub fn install(quiet: bool) -> Result<(), String> {
     let _ = k.set_value("NoRepair", &1u32);
     let size_kb = std::fs::metadata(installed_exe()).map(|m| (m.len() / 1024) as u32).unwrap_or(0);
     let _ = k.set_value("EstimatedSize", &size_kb);
-    remove_old_install();
+    remove_old_install(adopted);
 
     if !quiet && !existing {
         crate::ui::show(&crate::notices::installed());
@@ -299,7 +299,9 @@ pub fn uninstall(quiet: bool) -> Result<(), String> {
     stop_running();
     // An old install left behind goes too. First, so that its certificate (moved into certs/) is untrusted with
     // ours and its saved KakaoTalk auto start (taken over) is given back below.
-    remove_old_install();
+    // Its certs/ goes even when it couldn't be moved: undo removes the old certificate from the trusted roots by name.
+    let adopted = adopt_old_install();
+    remove_old_install(Adopted { certs_taken: true, ..adopted });
     let undo = setup::undo();
     let _ = std::fs::remove_file(startup_lnk());
     restore_kakao_autostart();
@@ -374,28 +376,40 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// What install and setup need from an old install, before they run: its certificate and settings.
-fn adopt_old_install() -> bool {
-    move_old_certs();
-    migrate_old_settings()
+/// What `adopt_old_install` took over, so `remove_old_install` knows what it may delete.
+#[derive(Clone, Copy)]
+struct Adopted {
+    /// The old settings are in ours (or there were none): the old key may go.
+    settings_taken: bool,
+    /// We have our own certs/ (moved from the old install, or made earlier): the old certs/ may go. When the move
+    /// failed it's kept: setup keeps serving with that still-trusted certificate if the user declines a new one,
+    /// and the next start tries the move again.
+    certs_taken: bool,
 }
 
-/// Removes a KakaoAdHide install after taking over its certificate and settings: its "Installed apps" entry,
-/// settings key, Startup shortcut, notification name, update leftovers, and its folder's known files. Its exe may
-/// still be exiting (it was just asked to quit): retried for 15 s, and when it's still there `first_run` tries
-/// again at the next start. The folder itself is removed only when nothing else is left in it.
-fn remove_old_install() {
+/// What install and setup need from an old install, before they run: its certificate and settings. Only ever
+/// called synchronously, before setup and the version note (never next to them on another thread).
+fn adopt_old_install() -> Adopted {
+    move_old_certs();
+    Adopted { certs_taken: setup::cert_dir().is_dir(), settings_taken: migrate_old_settings() }
+}
+
+/// Removes a KakaoAdHide install after `adopt_old_install` took over what it could: its "Installed apps" entry,
+/// settings key, Startup shortcut, notification name, update leftovers, and its folder's known files. Only
+/// deletes (it may run on a background thread next to setup). Its exe may still be exiting (it was just asked to
+/// quit): retried for 15 s, and when it's still there `first_run` tries again at the next start. The folder itself
+/// is removed only when nothing else is left in it.
+fn remove_old_install(adopted: Adopted) {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let settings_taken = adopt_old_install();
     let _ = hkcu.delete_subkey_all(OLD_UNINSTALL_KEY);
-    if settings_taken { let _ = hkcu.delete_subkey_all(OLD_APP_KEY); }
+    if adopted.settings_taken { let _ = hkcu.delete_subkey_all(OLD_APP_KEY); }
     let _ = hkcu.delete_subkey_all(app_id_key(OLD_NOTIFY_APP_ID));
     if startup_dir().is_absolute() { let _ = std::fs::remove_file(old_startup_lnk()); }
     let _ = std::fs::remove_dir_all(old_update_temp_dir());   // fails on the installer, if it's us: cleanup_update_temp
     let dir = old_install_dir();
     if !dir.is_absolute() || !dir.is_dir() { return; }
     for f in OLD_FILES { let _ = std::fs::remove_file(dir.join(f)); }
-    let _ = std::fs::remove_dir_all(dir.join("certs"));   // left only when it couldn't be moved (setup makes a new one)
+    if adopted.certs_taken { let _ = std::fs::remove_dir_all(dir.join("certs")); }
     let exe = old_installed_exe();
     let me = self_path().canonicalize().ok();
     if me.is_some() && me == exe.canonicalize().ok() { return; }   // never this running exe
@@ -583,11 +597,11 @@ pub fn open_url(url: &str) {
 
 /// At each start: what's left of a KakaoAdHide install (its exe was still running when this one was installed, or
 /// removing failed) is taken over now, before setup and the version note read it, and removed in the background
-/// (its exe may take up to 15 s).
+/// (its exe may take up to 15 s). An old folder kept by files we don't know is checked again at every start.
 pub fn first_run() {
     if !old_install_left() { return; }
-    adopt_old_install();
-    std::thread::spawn(remove_old_install);
+    let adopted = adopt_old_install();
+    std::thread::spawn(move || remove_old_install(adopted));
 }
 pub fn login_item_enabled() -> bool { startup_lnk().exists() }
 pub fn set_login_item(_on: bool) -> Result<(), String> { Ok(()) }   // the Startup shortcut is part of the install
