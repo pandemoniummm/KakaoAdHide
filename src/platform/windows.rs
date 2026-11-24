@@ -1,9 +1,16 @@
-//! Windows: installed like KakaoAdHide 1.0.0 (these must not change, or 1.0.0 copies can't update into this one):
-//!   - %LOCALAPPDATA%\KakaoAdHide\KakaoAdHide.exe, a Startup shortcut running it with --run, an "Installed apps"
-//!     entry (HKCU\...\Uninstall\KakaoAdHide), settings in HKCU\Software\KakaoAdHide,
-//!   - mutex Local\KakaoAdHide (one instance), event Local\KakaoAdHide.Quit (asks a running copy to exit),
-//!   - --run, --uninstall, --update, --quiet, --verify-feed,
+//! Windows: installed as TalkNap (2.7.0 on):
+//!   - %LOCALAPPDATA%\TalkNap\TalkNap.exe, a Startup shortcut TalkNap.lnk running it with --run, an "Installed apps"
+//!     entry (HKCU\...\Uninstall\TalkNap), settings in HKCU\Software\TalkNap, notifications under the
+//!     AppUserModelID pandemoniummm.TalkNap,
+//!   - mutex Local\TalkNap (one instance), event Local\TalkNap.Quit (asks a running copy to exit),
+//!   - --run, --uninstall, --update, --quiet, --verify-feed (unchanged since 1.0.0: an old version updates by
+//!     running the new exe with --quiet),
 //!   - KakaoTalk's own auto start is left as the user set it (see `release_kakao_autostart`).
+//!
+//! 1.0.0 to 2.6.0 installed the same things under the name KakaoAdHide (%LOCALAPPDATA%\KakaoAdHide\KakaoAdHide.exe,
+//! KakaoAdHide.lnk, HKCU\Software\KakaoAdHide, ...\Uninstall\KakaoAdHide, pandemoniummm.KakaoAdHide, mutex
+//! Local\KakaoAdHide, event Local\KakaoAdHide.Quit, %TEMP%\KakaoAdHide-update). The OLD_* names are kept only to
+//! find such an install, stop it, take over its settings and certificate and remove it (`install`, `first_run`).
 //!
 //! Setting up the ad server needs the hosts file (administrator: the exe runs itself elevated with `--hosts-add`
 //! or `--hosts-remove`) and the certificate in the user's trusted roots (Windows shows a confirmation).
@@ -24,24 +31,40 @@ use winreg::enums::HKEY_CURRENT_USER;
 use winreg::RegKey;
 
 pub const NAME: &str = "windows";
-pub const APP: &str = "KakaoAdHide";
-const MUTEX: &str = r"Local\KakaoAdHide";
-const QUIT_EVENT: &str = r"Local\KakaoAdHide.Quit";
+pub const APP: &str = "TalkNap";
+/// The name 1.0.0 to 2.6.0 installed under (only to move such an install).
+pub const OLD_APP: &str = "KakaoAdHide";
+const MUTEX: &str = r"Local\TalkNap";
+const OLD_MUTEX: &str = r"Local\KakaoAdHide";
+const QUIT_EVENT: &str = r"Local\TalkNap.Quit";
+const OLD_QUIT_EVENT: &str = r"Local\KakaoAdHide.Quit";
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const APP_KEY: &str = r"Software\KakaoAdHide";
-const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\KakaoAdHide";
+const APP_KEY: &str = r"Software\TalkNap";
+const OLD_APP_KEY: &str = r"Software\KakaoAdHide";
+const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\TalkNap";
+const OLD_UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\KakaoAdHide";
 const KAKAO_RUN_VALUE: &str = "KakaoTalk";
-/// The AppUserModelID notifications are shown under; registered so they read "KakaoAdHide" (removed on uninstall).
-const NOTIFY_APP_ID: &str = "pandemoniummm.KakaoAdHide";
-const NOTIFY_APP_KEY: &str = r"Software\Classes\AppUserModelId\pandemoniummm.KakaoAdHide";
+/// The AppUserModelID notifications are shown under; registered so they read "TalkNap" (removed on uninstall).
+const NOTIFY_APP_ID: &str = "pandemoniummm.TalkNap";
+const OLD_NOTIFY_APP_ID: &str = "pandemoniummm.KakaoAdHide";
+/// Where an AppUserModelID's DisplayName and icon are registered.
+fn app_id_key(id: &str) -> String { format!(r"Software\Classes\AppUserModelId\{id}") }
+/// What KakaoAdHide put in its install folder besides its exe and `certs` (which is moved): removed with it.
+const OLD_FILES: [&str; 4] = ["server.log", "server.log.old", "icon.png", "hosts.new"];
 
 fn wide(s: &str) -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() }
 fn env_dir(var: &str) -> PathBuf { PathBuf::from(std::env::var_os(var).unwrap_or_default()) }
 
 pub fn install_dir() -> PathBuf { env_dir("LOCALAPPDATA").join(APP) }
 pub fn installed_exe() -> PathBuf { install_dir().join(format!("{APP}.exe")) }
-fn startup_lnk() -> PathBuf { env_dir("APPDATA").join(r"Microsoft\Windows\Start Menu\Programs\Startup").join(format!("{APP}.lnk")) }
-pub fn update_temp_dir() -> PathBuf { std::env::temp_dir().join("KakaoAdHide-update") }
+fn startup_dir() -> PathBuf { env_dir("APPDATA").join(r"Microsoft\Windows\Start Menu\Programs\Startup") }
+fn startup_lnk() -> PathBuf { startup_dir().join(format!("{APP}.lnk")) }
+pub fn update_temp_dir() -> PathBuf { std::env::temp_dir().join(format!("{APP}-update")) }
+
+fn old_install_dir() -> PathBuf { env_dir("LOCALAPPDATA").join(OLD_APP) }
+fn old_installed_exe() -> PathBuf { old_install_dir().join(format!("{OLD_APP}.exe")) }
+fn old_startup_lnk() -> PathBuf { startup_dir().join(format!("{OLD_APP}.lnk")) }
+fn old_update_temp_dir() -> PathBuf { std::env::temp_dir().join(format!("{OLD_APP}-update")) }
 
 /// App data next to the installed exe (removed with it on uninstall).
 pub fn data_dir() -> PathBuf { install_dir() }
@@ -141,7 +164,7 @@ pub fn hosts_elevated(add: bool) -> i32 {
 pub struct Instance { mutex: HANDLE }
 impl Drop for Instance { fn drop(&mut self) { unsafe { ReleaseMutex(self.mutex); CloseHandle(self.mutex); } } }
 
-/// Owns Local\KakaoAdHide for the life of the process; None when another copy runs.
+/// Owns Local\TalkNap for the life of the process; None when another copy runs.
 pub fn single_instance() -> Option<Instance> {
     let name = wide(MUTEX);
     let m = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
@@ -150,7 +173,6 @@ pub fn single_instance() -> Option<Instance> {
     if r == WAIT_OBJECT_0 || r == WAIT_ABANDONED { Some(Instance { mutex: m }) } else { unsafe { CloseHandle(m) }; None }
 }
 
-/// Calls `on_quit` (from a background thread) when another copy signals Local\KakaoAdHide.Quit.
 /// Makes our hidden menu window the foreground window before a menu opens on it, so the menu takes the keyboard
 /// and closes when clicking elsewhere. The click came from KakaoTalk's window, and Windows only lets the
 /// foreground thread hand the foreground over, so attach to its input for the call.
@@ -182,6 +204,7 @@ pub fn give_back_foreground(mine: isize, prev: isize) {
     std::thread::spawn(|| { std::thread::sleep(std::time::Duration::from_millis(300)); recheck_kakao_active(); });
 }
 
+/// Calls `on_quit` (from a background thread) when another copy signals Local\TalkNap.Quit.
 pub fn watch_quit_event(on_quit: impl FnOnce() + Send + 'static) {
     let name = wide(QUIT_EVENT);
     let ev = unsafe { CreateEventW(std::ptr::null(), 1, 0, name.as_ptr()) };
@@ -194,14 +217,18 @@ pub fn watch_quit_event(on_quit: impl FnOnce() + Send + 'static) {
     });
 }
 
-/// Asks a running copy to exit and waits until it has (as 1.0.0's installer did).
+/// Asks a running copy to exit and waits until it has (as 1.0.0's installer did): this version's and a
+/// KakaoAdHide (1.0.0 to 2.6.0) one, as both may run while an old install is being replaced.
 pub fn stop_running() {
-    let name = wide(QUIT_EVENT);
-    let ev = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, name.as_ptr()) };
-    if !ev.is_null() { unsafe { SetEvent(ev); CloseHandle(ev); } }
-    let mname = wide(MUTEX);
-    let m = unsafe { CreateMutexW(std::ptr::null(), 0, mname.as_ptr()) };
-    if !m.is_null() {
+    for q in [QUIT_EVENT, OLD_QUIT_EVENT] {
+        let name = wide(q);
+        let ev = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, name.as_ptr()) };
+        if !ev.is_null() { unsafe { SetEvent(ev); CloseHandle(ev); } }
+    }
+    for name in [MUTEX, OLD_MUTEX] {
+        let mname = wide(name);
+        let m = unsafe { CreateMutexW(std::ptr::null(), 0, mname.as_ptr()) };
+        if m.is_null() { continue; }
         let r = unsafe { WaitForSingleObject(m, 5000) };
         unsafe {
             if r == WAIT_OBJECT_0 || r == WAIT_ABANDONED { ReleaseMutex(m); }
@@ -221,9 +248,10 @@ pub fn is_installed_copy() -> bool {
 }
 
 pub fn install(quiet: bool) -> Result<(), String> {
-    // Over an existing install (a newer exe run by hand) this is an update: no "installed" message, the new copy
-    // says it was updated when it starts (ui: updater::note_version).
-    let existing = installed_exe().exists();
+    // Over an existing install (a newer exe run by hand, or one a KakaoAdHide 1.0.0 to 2.6.0 install downloaded)
+    // this is an update: no "installed" message, the new copy says it was updated when it starts (ui:
+    // updater::note_version, which reads LastVersion taken over from the old settings).
+    let existing = installed_exe().exists() || old_installed_exe().exists();
     stop_running();
     std::fs::create_dir_all(install_dir()).map_err(|e| e.to_string())?;
     // The stopped copy (1.0.0 or this version) may take a moment to exit and release its exe: retry for 15s.
@@ -234,15 +262,18 @@ pub fn install(quiet: bool) -> Result<(), String> {
         copied = std::fs::copy(self_path(), installed_exe());
     }
     copied.map_err(|e| format!("설치하지 못했습니다: {e}"))?;
+    // Before anything reads them: the old install's certificate (still trusted, so no new confirmation) and
+    // settings (KakaoRun for release_kakao_autostart below, LastVersion for the "updated" message).
+    adopt_old_install();
     let mut lnk = mslnk::ShellLink::new(installed_exe()).map_err(|e| e.to_string())?;
     lnk.set_arguments(Some("--run".into()));
     lnk.set_working_dir(Some(install_dir().display().to_string()));
-    lnk.set_name(Some("KakaoTalk with the ad banner emptied".into()));
+    lnk.set_name(Some(APP.into()));
     lnk.create_lnk(startup_lnk()).map_err(|e| e.to_string())?;
     release_kakao_autostart();
     register_notifications();
 
-    let (k, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(UNINSTALL_KEY).map_err(|e| e.to_string())?;
+    let (k, _)= RegKey::predef(HKEY_CURRENT_USER).create_subkey(UNINSTALL_KEY).map_err(|e| e.to_string())?;
     let exe = installed_exe().display().to_string();
     let _ = k.set_value("DisplayName", &"TalkNap (카카오톡 광고 칸 비우기)".to_string());
     let _ = k.set_value("DisplayVersion", &VERSION.to_string());
@@ -255,6 +286,7 @@ pub fn install(quiet: bool) -> Result<(), String> {
     let _ = k.set_value("NoRepair", &1u32);
     let size_kb = std::fs::metadata(installed_exe()).map(|m| (m.len() / 1024) as u32).unwrap_or(0);
     let _ = k.set_value("EstimatedSize", &size_kb);
+    remove_old_install();
 
     if !quiet && !existing {
         crate::ui::show(&crate::notices::installed());
@@ -265,6 +297,9 @@ pub fn install(quiet: bool) -> Result<(), String> {
 
 pub fn uninstall(quiet: bool) -> Result<(), String> {
     stop_running();
+    // An old install left behind goes too. First, so that its certificate (moved into certs/) is untrusted with
+    // ours and its saved KakaoTalk auto start (taken over) is given back below.
+    remove_old_install();
     let undo = setup::undo();
     let _ = std::fs::remove_file(startup_lnk());
     restore_kakao_autostart();
@@ -280,7 +315,7 @@ pub fn uninstall(quiet: bool) -> Result<(), String> {
             Err(e) => crate::ui::error(&crate::notices::uninstall_incomplete(e)),
         }
     }
-    let _ = hkcu.delete_subkey_all(NOTIFY_APP_KEY);   // after the notification above, which is shown under it
+    let _ = hkcu.delete_subkey_all(app_id_key(NOTIFY_APP_ID));   // after the notification above, which is shown under it
     // The exe can't delete itself while running: cmd does it after we exit (rmdir without /s only removes an
     // empty folder, so nothing else that happens to be in there is touched). Uninstalling from the tray menu runs
     // in the app itself, which can take a while to exit, so cmd keeps retrying for about a minute.
@@ -298,6 +333,86 @@ pub fn uninstall(quiet: bool) -> Result<(), String> {
         if spawn(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB).is_err() { let _ = spawn(CREATE_NO_WINDOW); }
     }
     undo
+}
+
+// ---------------------------------------------------------------- the KakaoAdHide install (1.0.0 to 2.6.0)
+
+/// Copies every value of `from` into `to`, each with its own type (REG_SZ, REG_DWORD, ...), when `to` has none yet
+/// (it's never overwritten). True when something was copied.
+fn migrate_settings(from: &RegKey, to: &RegKey) -> std::io::Result<bool> {
+    if to.enum_values().next().is_some() { return Ok(false); }
+    let values = from.enum_values().collect::<std::io::Result<Vec<_>>>()?;
+    for (name, value) in &values { to.set_raw_value(name, value)?; }
+    Ok(!values.is_empty())
+}
+
+/// Takes over the old settings (HKCU\Software\KakaoAdHide into HKCU\Software\TalkNap). False when they are there
+/// and couldn't be copied, so they must be kept.
+fn migrate_old_settings() -> bool {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let Ok(old) = hkcu.open_subkey(OLD_APP_KEY) else { return true };
+    let Ok((new, _)) = hkcu.create_subkey(APP_KEY) else { return false };
+    migrate_settings(&old, &new).is_ok()
+}
+
+/// Moves the old install's certs/ (certificate and key, already trusted) into ours when we have none yet:
+/// renamed, or copied when that fails.
+fn move_old_certs() {
+    let (old, new) = (old_install_dir().join("certs"), setup::cert_dir());
+    if !old_install_dir().is_absolute() || !old.is_dir() || new.exists() || !install_dir().is_dir() { return; }
+    if std::fs::rename(&old, &new).is_ok() { return; }
+    if copy_dir(&old, &new).is_ok() { let _ = std::fs::remove_dir_all(&old); } else { let _ = std::fs::remove_dir_all(&new); }
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for e in std::fs::read_dir(from)? {
+        let e = e?;
+        if e.file_type()?.is_dir() { copy_dir(&e.path(), &to.join(e.file_name()))?; }
+        else { std::fs::copy(e.path(), to.join(e.file_name()))?; }
+    }
+    Ok(())
+}
+
+/// What install and setup need from an old install, before they run: its certificate and settings.
+fn adopt_old_install() -> bool {
+    move_old_certs();
+    migrate_old_settings()
+}
+
+/// Removes a KakaoAdHide install after taking over its certificate and settings: its "Installed apps" entry,
+/// settings key, Startup shortcut, notification name, update leftovers, and its folder's known files. Its exe may
+/// still be exiting (it was just asked to quit): retried for 15 s, and when it's still there `first_run` tries
+/// again at the next start. The folder itself is removed only when nothing else is left in it.
+fn remove_old_install() {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let settings_taken = adopt_old_install();
+    let _ = hkcu.delete_subkey_all(OLD_UNINSTALL_KEY);
+    if settings_taken { let _ = hkcu.delete_subkey_all(OLD_APP_KEY); }
+    let _ = hkcu.delete_subkey_all(app_id_key(OLD_NOTIFY_APP_ID));
+    if startup_dir().is_absolute() { let _ = std::fs::remove_file(old_startup_lnk()); }
+    let _ = std::fs::remove_dir_all(old_update_temp_dir());   // fails on the installer, if it's us: cleanup_update_temp
+    let dir = old_install_dir();
+    if !dir.is_absolute() || !dir.is_dir() { return; }
+    for f in OLD_FILES { let _ = std::fs::remove_file(dir.join(f)); }
+    let _ = std::fs::remove_dir_all(dir.join("certs"));   // left only when it couldn't be moved (setup makes a new one)
+    let exe = old_installed_exe();
+    let me = self_path().canonicalize().ok();
+    if me.is_some() && me == exe.canonicalize().ok() { return; }   // never this running exe
+    for _ in 0..30 {
+        if !exe.exists() || std::fs::remove_file(&exe).is_ok() { break; }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    let _ = std::fs::remove_dir(&dir);   // not recursive: anything else in there keeps the folder
+}
+
+/// Whether anything of a KakaoAdHide install is left (it couldn't all be removed when this one was installed).
+fn old_install_left() -> bool {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    (old_install_dir().is_absolute() && old_install_dir().exists())
+        || hkcu.open_subkey(OLD_APP_KEY).is_ok()
+        || hkcu.open_subkey(OLD_UNINSTALL_KEY).is_ok()
+        || (startup_dir().is_absolute() && old_startup_lnk().exists())
 }
 
 // ---------------------------------------------------------------- KakaoTalk's own auto start
@@ -441,7 +556,7 @@ pub fn register_notifications() {
     // the app icon for the notification header: a PNG next to the exe (removed on uninstall)
     let png = install_dir().join("icon.png");
     let icon_ok = std::fs::write(&png, include_bytes!("../../assets/icon-256.png")).is_ok();
-    if let Ok((k, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(NOTIFY_APP_KEY) {
+    if let Ok((k, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(app_id_key(NOTIFY_APP_ID)) {
         let _ = k.set_value("DisplayName", &"TalkNap".to_string());
         if icon_ok { let _ = k.set_value("IconUri", &png.display().to_string()); }
     }
@@ -466,7 +581,14 @@ pub fn open_url(url: &str) {
     let _ = Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).creation_flags(0x0800_0000).spawn();
 }
 
-pub fn first_run() {}
+/// At each start: what's left of a KakaoAdHide install (its exe was still running when this one was installed, or
+/// removing failed) is taken over now, before setup and the version note read it, and removed in the background
+/// (its exe may take up to 15 s).
+pub fn first_run() {
+    if !old_install_left() { return; }
+    adopt_old_install();
+    std::thread::spawn(remove_old_install);
+}
 pub fn login_item_enabled() -> bool { startup_lnk().exists() }
 pub fn set_login_item(_on: bool) -> Result<(), String> { Ok(()) }   // the Startup shortcut is part of the install
 
@@ -487,11 +609,13 @@ pub fn install_update(f: &Feed) -> Result<(), crate::updater::InstallError> {
     Ok(())
 }
 
-/// Removes the installer an update left behind (it may still be exiting: retry a little).
+/// Removes the installer an update left behind (it may still be exiting: retry a little). A KakaoAdHide (2.6.0 or
+/// older) updating to this one downloaded it to its own folder, %TEMP%\KakaoAdHide-update.
 pub fn cleanup_update_temp() {
     std::thread::spawn(|| {
         for _ in 0..10 {
-            if !update_temp_dir().exists() || std::fs::remove_dir_all(update_temp_dir()).is_ok() { return; }
+            let left: Vec<PathBuf> = [update_temp_dir(), old_update_temp_dir()].into_iter().filter(|d| d.exists()).collect();
+            if left.iter().all(|d| std::fs::remove_dir_all(d).is_ok()) { return; }
             std::thread::sleep(std::time::Duration::from_secs(2));
         }
     });
@@ -503,6 +627,71 @@ pub fn verify_package(f: &Feed, exe: &Path) -> Result<(), VerifyError> {
 
 #[cfg(test)]
 mod tests {
+    use winreg::enums::{RegType, HKEY_CURRENT_USER};
+    use winreg::RegKey;
+
+    /// A throwaway key HKCU\Software\TalkNapTest-<pid>-<name> with subkeys old and new, deleted when dropped
+    /// (also when the test fails). Never the real Software\KakaoAdHide or Software\TalkNap.
+    struct TestKey(String);
+    impl TestKey {
+        fn new(name: &str) -> (TestKey, RegKey, RegKey) {
+            let path = format!(r"Software\TalkNapTest-{}-{name}", std::process::id());
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            let (old, _) = hkcu.create_subkey(format!(r"{path}\old")).unwrap();
+            let (new, _) = hkcu.create_subkey(format!(r"{path}\new")).unwrap();
+            (TestKey(path), old, new)
+        }
+    }
+    impl Drop for TestKey {
+        fn drop(&mut self) { let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(&self.0); }
+    }
+
+    #[test]
+    fn migrate_settings_copies_all_kinds() {
+        let (_key, old, new) = TestKey::new("copy");
+        old.set_value("Consented", &"1".to_string()).unwrap();
+        old.set_value("LastVersion", &"2.6.0".to_string()).unwrap();
+        old.set_value("UpdateCheck", &0u32).unwrap();
+        assert!(super::migrate_settings(&old, &new).unwrap());
+        assert_eq!(new.get_value::<String, _>("Consented").unwrap(), "1");
+        assert_eq!(new.get_value::<String, _>("LastVersion").unwrap(), "2.6.0");
+        assert_eq!(new.get_value::<u32, _>("UpdateCheck").unwrap(), 0);
+        assert_eq!(new.get_raw_value("Consented").unwrap().vtype, RegType::REG_SZ);
+        assert_eq!(new.get_raw_value("UpdateCheck").unwrap().vtype, RegType::REG_DWORD);
+        assert_eq!(new.enum_values().count(), 3);
+    }
+
+    #[test]
+    fn migrate_settings_is_idempotent() {
+        let (_key, old, new) = TestKey::new("keep");
+        old.set_value("LastVersion", &"2.6.0".to_string()).unwrap();
+        old.set_value("UpdateCheck", &0u32).unwrap();
+        new.set_value("LastVersion", &"2.7.0".to_string()).unwrap();
+        assert!(!super::migrate_settings(&old, &new).unwrap());
+        assert_eq!(new.get_value::<String, _>("LastVersion").unwrap(), "2.7.0");
+        assert!(new.get_value::<u32, _>("UpdateCheck").is_err());
+    }
+
+    #[test]
+    fn migrate_settings_from_empty_key() {
+        // 1.0.0 kept no settings: nothing to copy, nothing fails
+        let (_key, old, new) = TestKey::new("empty");
+        assert!(!super::migrate_settings(&old, &new).unwrap());
+        assert_eq!(new.enum_values().count(), 0);
+    }
+
+    #[test]
+    fn old_and_new_names_differ() {
+        // removing the old install must never touch the new one
+        assert_ne!(super::old_install_dir(), super::install_dir());
+        assert_ne!(super::old_startup_lnk(), super::startup_lnk());
+        assert_ne!(super::old_update_temp_dir(), super::update_temp_dir());
+        assert!(super::old_install_dir().ends_with("KakaoAdHide") && super::install_dir().ends_with("TalkNap"));
+        assert_ne!(super::OLD_APP_KEY, super::APP_KEY);
+        assert_ne!(super::OLD_UNINSTALL_KEY, super::UNINSTALL_KEY);
+        assert_ne!(super::app_id_key(super::OLD_NOTIFY_APP_ID), super::app_id_key(super::NOTIFY_APP_ID));
+    }
+
     /// Touches the real certificate store: run by hand (`cargo test -- --ignored old_certificates`) only on a PC
     /// with a throwaway old-CN test certificate in CurrentUser\Root, never where the real install is.
     #[test]
