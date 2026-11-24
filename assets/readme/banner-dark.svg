@@ -12,8 +12,7 @@
     <rect x="55.5" y="143.5" width="149" height="57" rx="19.5" fill="none" stroke="#2b3040" stroke-width="7" stroke-dasharray="13 9"/>
   </g>
   <g transform="translate(100 0)" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">
-    <text x="410" y="150" font-size="76" font-weight="800" letter-spacing="-2" fill="#eef1f6">낮잠</text>
-    <text x="556" y="150" font-size="34" font-weight="500" letter-spacing="0" fill="#5d6879">TalkNap</text>
+    <text x="410" y="150" font-size="76" font-weight="800" letter-spacing="-2" fill="#eef1f6">TalkNap</text>
     <text x="738" y="222" font-size="38" font-weight="600" letter-spacing="-1" text-anchor="end" fill="#eef1f6">카카오톡 광고 칸을</text>
     <rect x="752" y="180" width="196" height="58" rx="12" fill="none" stroke="#1f8fd6" stroke-width="3" stroke-dasharray="10 7"/>
     <text x="850" y="222" font-size="38" font-weight="700" letter-spacing="-1" fill="#1f8fd6" text-anchor="middle">빈 칸으로</text>
