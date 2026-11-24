@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. hosts로 광고 주소를 127.0.0.1로 보내고, 자체 서명 인증서로 443 포트에서 빈 광고를 돌려줍니다. 구조·빌드·릴리스 절차는 [docs/development.md](docs/development.md), 업데이트 피드는 [docs/update-feed.md](docs/update-feed.md), 실측한 카카오톡 구조는 [docs/kakaotalk.md](docs/kakaotalk.md)에 있습니다. 카카오톡에서 새로 알아낸 것은 kakaotalk.md에 적습니다. 여기에는 그 문서에 없는 작업 규칙만 적습니다.
+낮잠(TalkNap, 예전 이름 KakaoAdHide): 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. 사용자에게 보이는 이름은 한글 "낮잠", 영어 "TalkNap"이고, 아래 "바꾸면 안 되는 것"의 내부 이름은 KakaoAdHide 그대로 둡니다. hosts로 광고 주소를 127.0.0.1로 보내고, 자체 서명 인증서로 443 포트에서 빈 광고를 돌려줍니다. 구조·빌드·릴리스 절차는 [docs/development.md](docs/development.md), 업데이트 피드는 [docs/update-feed.md](docs/update-feed.md), 실측한 카카오톡 구조는 [docs/kakaotalk.md](docs/kakaotalk.md)에 있습니다. 카카오톡에서 새로 알아낸 것은 kakaotalk.md에 적습니다. 여기에는 그 문서에 없는 작업 규칙만 적습니다.
 
 ## 사용자와 일하는 규칙
 
@@ -30,6 +30,9 @@ KakaoAdHide: 카카오톡 PC(Windows, macOS) 광고 칸을 비우는 Rust 앱. h
 - 설치 경로, 레지스트리 위치, 뮤텍스 `Local\KakaoAdHide`, 종료 이벤트 `Local\KakaoAdHide.Quit`
 - 명령줄 옵션 `--run`, `--uninstall`, `--update`, `--quiet`
 - macOS: 코드 서명 인증서(`SIGNING_CERT_SHA1`). 바꾸면 설치된 앱이 업데이트를 거부합니다.
+- 내부 이름 `KakaoAdHide`: 설치 폴더·exe·앱 번들 파일 이름, 번들 ID, 인증서 이름(`KakaoAdHide local ad server`), hosts 표시 줄, 서명 문구(`KakaoAdHide
+…`, `KakaoAdHide-units
+…`), 릴리스 파일 이름. 화면에 보이는 이름만 낮잠으로 바꿉니다.
 
 ## 릴리스 방식
 

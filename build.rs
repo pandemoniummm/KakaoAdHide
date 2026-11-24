@@ -17,8 +17,8 @@ fn main() {
         let packed = (v[0] << 48) | (v[1] << 32) | (v[2] << 16);
         res.set_version_info(winresource::VersionInfo::FILEVERSION, packed);
         res.set_version_info(winresource::VersionInfo::PRODUCTVERSION, packed);
-        res.set("ProductName", "KakaoAdHide");
-        res.set("FileDescription", "KakaoAdHide - empties the KakaoTalk ad banner");
+        res.set("ProductName", "낮잠 (TalkNap)");
+        res.set("FileDescription", "낮잠");
         res.set("ProductVersion", &version);
         res.set("FileVersion", &version);
         res.set("LegalCopyright", "Copyright (c) 2026 pandemoniummm, MIT License");

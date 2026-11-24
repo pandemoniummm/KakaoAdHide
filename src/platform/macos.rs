@@ -84,8 +84,8 @@ pub fn set_hosts(add: bool) -> Result<(), String> {
     let tmp = data_dir().join("hosts.new");
     std::fs::create_dir_all(data_dir()).map_err(|e| e.to_string())?;
     std::fs::write(&tmp, new).map_err(|e| e.to_string())?;
-    let prompt = if add { "KakaoAdHide가 카카오톡 광고 주소 두 개를 이 Mac으로 돌리려고 합니다." }
-                 else { "KakaoAdHide가 hosts 파일에 넣었던 두 줄을 지우려고 합니다." };
+    let prompt = if add { "낮잠(TalkNap)이 카카오톡 광고 주소 두 개를 이 Mac으로 돌리려고 합니다." }
+                 else { "낮잠(TalkNap)이 hosts 파일에 넣었던 두 줄을 지우려고 합니다." };
     let script = format!(
         // The resolver didn't always pick up the new file after a plain HUP: flush, then restart it (launchd
         // starts it again at once). The flush steps run even if an earlier one fails.

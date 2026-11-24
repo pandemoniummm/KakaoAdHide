@@ -70,7 +70,7 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 
 공통 (하나라도 틀리면 설치하지 않고 릴리스 페이지를 안내):
 
-1. `url`이 `https://github.com/pandemoniummm/KakaoAdHide/releases/download/`로 시작
+1. `url`이 `https://github.com/pandemoniummm/KakaoAdHide/releases/download/`로 시작(2.6.0부터는 새 저장소 이름 `.../TalkNap/releases/download/`도 허용)
 2. 받은 파일의 크기와 SHA-256이 JSON과 같음
 3. `signature_ed25519`가 공개키 중 하나로 검증됨
 4. `version`이 지금 버전보다 높음

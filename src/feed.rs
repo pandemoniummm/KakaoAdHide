@@ -18,7 +18,11 @@ use std::io::Read;
 use std::path::Path;
 
 pub const REPO: &str = "pandemoniummm/KakaoAdHide";
+/// Where release feeds point their downloads (tools/feed-sign). Kept on the old repository name: GitHub redirects it
+/// after the repository is renamed to TalkNap, and copies before 2.6.0 accept only this prefix.
 pub const ASSET_PREFIX: &str = "https://github.com/pandemoniummm/KakaoAdHide/releases/download/";
+/// Download prefixes this copy accepts: the repository under its old name and under its new name (2.6.0+).
+pub const ASSET_PREFIXES: &[&str] = &[ASSET_PREFIX, "https://github.com/pandemoniummm/TalkNap/releases/download/"];
 pub const RELEASES_PAGE: &str = "https://github.com/pandemoniummm/KakaoAdHide/releases/latest";
 
 pub fn feed_url(platform: &str) -> String {
@@ -85,8 +89,8 @@ impl Feed {
     pub fn page_url(&self) -> String { self.page.clone().unwrap_or_else(|| RELEASES_PAGE.to_string()) }
 
     pub fn check_url(&self) -> Result<(), VerifyError> {
-        if self.url.starts_with(ASSET_PREFIX) && !self.url[ASSET_PREFIX.len()..].contains("..") { Ok(()) }
-        else { Err(VerifyError::OutsideRepository) }
+        let inside = ASSET_PREFIXES.iter().any(|p| self.url.starts_with(p) && !self.url[p.len()..].contains(".."));
+        if inside { Ok(()) } else { Err(VerifyError::OutsideRepository) }
     }
 }
 
@@ -224,6 +228,13 @@ mod tests {
         f.url = "https://github.com/someone/KakaoAdHide/releases/download/v1/x.exe".into();
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
         f.url = format!("{ASSET_PREFIX}../../evil");
+        assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
+        // the repository under its new name (TalkNap) is accepted too
+        f.url = "https://github.com/pandemoniummm/TalkNap/releases/download/v2.6.0/KakaoAdHide-windows.exe".into();
+        assert_eq!(f.check_url(), Ok(()));
+        f.url = "https://github.com/pandemoniummm/TalkNap/releases/download/../../evil".into();
+        assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
+        f.url = "https://github.com/pandemoniummm/TalkNapX/releases/download/v1/x.exe".into();
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
         // the 2.5.2+ feed; latest-*.json stays the 2.5.2 bridge for older copies
         assert_eq!(feed_url("macos"), "https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/update-macos.json");

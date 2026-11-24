@@ -110,7 +110,7 @@ st();window.addEventListener('resize',function(){{clearTimeout(rt);rt=setTimeout
         Some(token) => format!(
             "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);\
 height:var(--ic,19px);padding:calc(var(--ic,19px)*{HOVER_PAD});border-radius:50%;transform:translate(-50%,-50%);color:{ACTIVE_LIGHT};cursor:default}}#kah:hover{{background:rgba(0,0,0,{HOVER_LIGHT})}}{dark_button}.off #kah{{color:{INACTIVE_LIGHT}}}{dark_off}</style><svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"{STROKE}\" \
-stroke-linecap=\"round\"><title>KakaoAdHide</title>{TOP_RECT}\
+stroke-linecap=\"round\"><title>낮잠</title>{TOP_RECT}\
 <rect x=\"3\" y=\"13.5\" width=\"18\" height=\"6.5\" rx=\"3.25\"/></svg>\
 <script>document.getElementById('kah').addEventListener('click',function(){{\
 fetch('{MENU_URL}?t={token}',{{mode:'no-cors',cache:'no-store'}}).catch(function(){{}})}});\

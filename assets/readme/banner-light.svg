@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360">
+  <!-- README banner (light). The icon is assets/icon.svg; colors are site/index.html's. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eef1f6"/></linearGradient>
+    <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#47e0b8"/><stop offset="1" stop-color="#1f8fd6"/></linearGradient>
+  </defs>
+  <rect x="1" y="1" width="1278" height="358" rx="28" fill="#fbfcfe" stroke="#e4e8ef" stroke-width="2"/>
+  <g transform="translate(220 70) scale(0.846)">
+    <rect x="1" y="1" width="258" height="258" rx="59" fill="url(#tile)" stroke="#dde2ec" stroke-width="2"/>
+    <rect x="52" y="56" width="156" height="60" rx="23" fill="url(#mint)"/>
+    <rect x="74" y="79" width="80" height="14" rx="7" fill="#ffffff" fill-opacity="0.85"/>
+    <rect x="55.5" y="143.5" width="149" height="57" rx="19.5" fill="none" stroke="#2b3040" stroke-width="7" stroke-dasharray="13 9"/>
+  </g>
+  <g transform="translate(100 0)" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">
+    <text x="410" y="150" font-size="76" font-weight="800" letter-spacing="-2" fill="#141824">낮잠</text>
+    <text x="556" y="150" font-size="34" font-weight="500" letter-spacing="0" fill="#98a2b3">TalkNap</text>
+    <text x="738" y="222" font-size="38" font-weight="600" letter-spacing="-1" text-anchor="end" fill="#141824">카카오톡 광고 칸을</text>
+    <rect x="752" y="180" width="196" height="58" rx="12" fill="none" stroke="#1f8fd6" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="850" y="222" font-size="38" font-weight="700" letter-spacing="-1" fill="#1f8fd6" text-anchor="middle">빈 칸으로</text>
+    <text x="412" y="282" font-size="24" fill="#5d6879">Windows · macOS · 무료 · 오픈 소스</text>
+  </g>
+</svg>
