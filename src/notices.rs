@@ -111,6 +111,9 @@ pub fn move_to_applications() -> Ask {
 // ---------------------------------------------------------------- problems
 
 pub fn check_failed(why: &str) -> Problem { problem("업데이트 확인 실패", why.into()) }
+/// The update information couldn't be fetched (not: fetched and not valid, which `check_failed` says).
+pub fn check_failed_offline(why: &str) -> Problem { problem("업데이트 확인 실패", format!("인터넷 연결을 확인해 주세요.
+{why}")) }
 pub fn download_failed(why: &str) -> Problem { problem("업데이트 실패", format!("인터넷 연결을 확인해 주세요.\n{why}")) }
 pub fn setup_failed(why: &str) -> Problem { problem("설정 실패", why.into()) }
 pub fn port_busy(who: &str) -> Problem { problem("443 포트 사용 중", format!("다른 프로그램이 443 포트를 쓰고 있습니다.\n{who}")) }
@@ -162,10 +165,17 @@ mod tests {
         for a in [offer_update("9.9.9"), uninstall(), update_unverified(), update_not_possible(), move_to_applications(), moving()] {
             assert!(a.title.chars().count() <= 16 && lines(&a.body) <= 2, "{}", a.title);
         }
-        for p in [check_failed("x"), download_failed("x"), setup_failed("x"), port_busy("x"), failed("x"),
+        for p in [check_failed("x"), check_failed_offline("x"), download_failed("x"), setup_failed("x"), port_busy("x"), failed("x"),
                   uninstall_incomplete("x"), move_failed("x"), login_item_failed("x")] {
             assert!(p.title.chars().count() <= 12 && lines(&p.body) <= 2, "{}", p.title);
         }
+    }
+
+    #[test]
+    fn offline_check_says_so_first() {
+        let p = check_failed_offline("Connection refused");
+        assert_eq!(p.body, "인터넷 연결을 확인해 주세요.
+Connection refused");
     }
 
     #[test]

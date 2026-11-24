@@ -57,9 +57,23 @@ fn get_limited(url: &str, limit: u64) -> Result<Vec<u8>, String> {
 
 pub enum Check { UpToDate, Available(Feed) }
 
-pub fn check() -> Result<Check, String> {
-    let data = get_limited(&feed::feed_url(platform::NAME), MAX_FEED)?;
-    let f = Feed::parse(&data).map_err(|e| e.to_string())?;
+/// Why the check failed: the update information couldn't be fetched, or what came isn't valid (already worded
+/// for the user).
+#[derive(Debug)]
+pub enum CheckError { Network(String), Feed(String) }
+
+impl CheckError {
+    pub fn problem(&self) -> crate::notices::Problem {
+        match self {
+            CheckError::Network(e) => crate::notices::check_failed_offline(e),
+            CheckError::Feed(e) => crate::notices::check_failed(e),
+        }
+    }
+}
+
+pub fn check() -> Result<Check, CheckError> {
+    let data = get_limited(&feed::feed_url(platform::NAME), MAX_FEED).map_err(CheckError::Network)?;
+    let f = Feed::parse(&data).map_err(|e| CheckError::Feed(e.to_string()))?;
     if let Some(units) = feed::verified_units(&f, platform::NAME, crate::keys::PUBLIC_KEYS) {
         platform::set(crate::banner::FEED_UNITS, Some(&units.join(",")));
     }

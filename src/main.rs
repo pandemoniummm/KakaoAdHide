@@ -70,7 +70,7 @@ fn main() {
 /// --update: 0 = update started, 2 = up to date, 3 = not verified, 1 = error.
 fn update_now(quiet: bool) -> i32 {
     match updater::check() {
-        Err(e) => { if !quiet { ui::error(&notices::check_failed(&e)); } 1 }
+        Err(e) => { if !quiet { ui::error(&e.problem()); } 1 }
         Ok(updater::Check::UpToDate) => { if !quiet { ui::show(&notices::up_to_date()); } 2 }
         Ok(updater::Check::Available(f)) => match platform::install_update(&f) {
             Ok(()) => 0,

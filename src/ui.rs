@@ -3,7 +3,7 @@
 use crate::feed::Feed;
 use crate::notices::{self, Ask, Notice, Problem};
 use crate::setup::{self, Status};
-use crate::updater::{self, Check};
+use crate::updater::{self, Check, CheckError};
 use crate::{platform, VERSION};
 use std::time::Duration;
 use tao::event::{Event, StartCause};
@@ -43,7 +43,7 @@ fn confirm_label(title: &str, text: &str, ok: &str, cancel: &str) -> bool {
 
 enum UserEvent {
     Menu(MenuId),
-    UpdateChecked(Result<Check, String>, bool),
+    UpdateChecked(Result<Check, CheckError>, bool),
     TimerCheck,
     RouteCheck,
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -341,7 +341,7 @@ impl App {
         self.refresh();
     }
 
-    fn update_checked(&mut self, result: Result<Check, String>, interactive: bool) -> bool {
+    fn update_checked(&mut self, result: Result<Check, CheckError>, interactive: bool) -> bool {
         match result {
             Ok(Check::Available(f)) => {
                 let skipped = updater::skipped().as_deref() == Some(f.version.as_str());
@@ -371,7 +371,7 @@ impl App {
                 self.refresh();
                 if interactive { show(&notices::up_to_date()); }
             }
-            Err(e) => if interactive { error(&notices::check_failed(&e)) },
+            Err(e) => if interactive { error(&e.problem()) },
         }
         false
     }
