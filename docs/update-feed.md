@@ -9,7 +9,7 @@
 
 앱은 `https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/<업데이트 정보>`를 읽습니다. 이 주소는 공개된 최신 릴리스만 가리키고, 초안은 가리키지 않습니다.
 
-> 옛 버전 호환: 2.5.2는 `update-windows.json`·`update-macos.json`을, 2.5.1 이하는 `latest-windows.json`·`latest-macos.json`을 읽습니다. 이 파일들은 각각 징검다리 버전의 것으로 고정해 두고 릴리스마다 그대로 다시 올립니다. 그래서 옛 버전도 징검다리를 거쳐 최신 버전까지 올라옵니다([아래](#징검다리-252)).
+> 옛 버전 호환: 2.5.2는 `update-windows.json`·`update-macos.json`을, 2.5.1 이하는 `latest-windows.json`·`latest-macos.json`을 읽습니다. 이 파일들은 각각 징검다리 버전의 것으로 고정해 두고 릴리스마다 그대로 다시 올립니다. 그래서 옛 버전도 징검다리를 거쳐 최신 버전까지 올라옵니다([2.5.2](#징검다리-252), [2.6.0](#징검다리-260)).
 
 ## JSON
 
@@ -69,7 +69,7 @@ UTF-8로 읽습니다. 앞에 BOM이 있어도 받아들입니다.
 **ID가 바뀌었을 때**
 
 1. `server.log`에서 새 `[DAN-…]`를 확인하고 `ad-units/<플랫폼>.txt`에 추가해 main에 푸시합니다(옛 ID는 남겨 둡니다).
-2. Actions → `units` → Run workflow. 최신 릴리스의 `update-*.json`에 새 목록을 서명해 다시 올립니다(`feed-sign units`). 징검다리 `latest-*.json`은 건드리지 않습니다.
+2. Actions → `units` → Run workflow. 최신 릴리스의 `feed-*.json`에 새 목록을 서명해 다시 올립니다(`feed-sign units`). 2.5.2가 읽는 `update-*.json`에도 옛 문구로 같은 목록을 다시 서명합니다(`--legacy`). 가장 옛 징검다리 `latest-*.json`은 건드리지 않습니다.
 3. 설치된 앱은 다음 업데이트 확인 때(시작 1분 뒤, 그 뒤 하루 한 번) 목록을 받습니다. 카카오톡을 다시 켜면 빈 광고가 돌아옵니다.
 
 릴리스 때는 CI가 같은 도구로 목록을 함께 서명합니다.
@@ -93,9 +93,9 @@ macOS는 여기에 더해 dmg 안의 앱을 확인합니다.
 
 ## 릴리스 워크플로의 확인
 
-- Windows: 만든 exe가 `--verify-feed update-windows.json KakaoAdHide-windows.exe`로 직접 확인 (exe에 들어간 버전과 JSON 버전이 같은지도 확인)
-- macOS: dmg에서 꺼낸 앱이 `--verify-feed update-macos.json KakaoAdHide-macos.dmg`로 직접 확인 (위 1~7을 사용자와 같은 코드로 실행)
-- 징검다리 릴리스(2.5.2)에서는 `latest-*.json`도 같은 방법으로 확인합니다. 그 뒤 릴리스의 `latest-*.json`은 고정본을 복사한 것이라 확인하지 않습니다(버전이 다름).
+- Windows: 만든 exe가 `--verify-feed feed-windows.json KakaoAdHide-windows.exe`로 직접 확인 (exe에 들어간 버전과 JSON 버전이 같은지도 확인)
+- macOS: dmg에서 꺼낸 앱이 `--verify-feed feed-macos.json KakaoAdHide-macos.dmg`로 직접 확인 (위 1~7을 사용자와 같은 코드로 실행)
+- 징검다리 릴리스에서는 징검다리 파일도 확인합니다: 2.5.2는 `latest-*.json`, 2.6.0은 `update-*.json`(`feed-sign verify --legacy`). 그 뒤 릴리스의 이 파일들은 고정본을 복사한 것이라 확인하지 않습니다(버전이 다름).
 
 ## macOS 코드 서명 인증서
 

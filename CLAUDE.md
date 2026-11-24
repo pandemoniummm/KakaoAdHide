@@ -25,7 +25,8 @@
 
 설치된 옛 버전이 계속 업데이트를 받을 수 있어야 합니다. 다음은 바꾸지 않습니다.
 
-- 업데이트 피드 이름 `update-windows.json`, `update-macos.json`(2.5.2부터). 옛 이름 `latest-*.json`은 2.5.2 징검다리로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [docs/update-feed.md](docs/update-feed.md#징검다리-252))
+- 업데이트 피드 이름 `feed-windows.json`, `feed-macos.json`(2.6.0부터). 옛 이름 `update-*.json`(2.5.2부터)은 2.6.0 징검다리로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [docs/update-feed.md](docs/update-feed.md#징검다리-260))
+- 더 옛 이름 `latest-*.json`은 2.5.2 징검다리로 고정해 릴리스마다 그대로 올립니다(`packaging/bridge/`, [docs/update-feed.md](docs/update-feed.md#징검다리-252))
 - 업데이트 서명: `src/keys.rs`의 Ed25519 공개키(2.5.1부터)
 - 설치 경로, 레지스트리 위치, 뮤텍스 `Local\KakaoAdHide`, 종료 이벤트 `Local\KakaoAdHide.Quit`
 - 명령줄 옵션 `--run`, `--uninstall`, `--update`, `--quiet`

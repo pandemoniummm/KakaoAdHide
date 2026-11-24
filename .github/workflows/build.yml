@@ -108,7 +108,8 @@ jobs:
   # ---------------------------------------------------------------------------------------------------------
   # On a v* tag: build both apps, sign both update feeds (SIGNING_KEY_ED25519), check each feed
   # with the app built for it, and upload everything as a DRAFT release. Nothing reaches users until the draft
-  # is published (releases/latest/download/update-*.json and latest-*.json, which the apps read, ignore drafts).
+  # is published (releases/latest/download/feed-*.json, update-*.json and latest-*.json, which the apps read,
+  # ignore drafts).
 
   # The macOS app, signed with the self-signed release certificate (tools/new-macos-signing-cert.sh). Starts with
   # the test jobs instead of after them (macOS runners can take many minutes to come); the signing job below
@@ -174,10 +175,24 @@ jobs:
           function FeedSign { cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- @args; if ($LASTEXITCODE -ne 0) { throw "feed-sign $args failed" } }
           $packages = @{ windows = 'dist/KakaoAdHide-windows.exe'; macos = 'dist/KakaoAdHide-macos.dmg' }
           foreach ($p in 'windows', 'macos') {
-            # update-*.json: the feed 2.5.2 and later read (Ed25519), with the bottom banner's ad placement ids
-            # (ad-units/) signed on their own; units.yml re-signs them later
-            FeedSign new $packages[$p] $env:VERSION $tag "dist/update-$p.json"
-            FeedSign units "dist/update-$p.json" $p
+            # feed-*.json: the feed 2.6.0 and later read (Ed25519, "TalkNap" messages), with the bottom banner's ad
+            # placement ids (ad-units/) signed on their own; units.yml re-signs them later
+            FeedSign new $packages[$p] $env:VERSION $tag "dist/feed-$p.json"
+            FeedSign units "dist/feed-$p.json" $p
+            # update-*.json: the feed copies 2.5.2 read ("KakaoAdHide" messages), kept as the 2.6.0 release's (the
+            # bridge): 2.5.2 updates to 2.6.0 first, then follows feed-*.json. Copied unchanged except the ad
+            # placement ids (re-signed, so a changed id reaches 2.5.2 too); 2.6.0's exe and dmg never change.
+            # Only the 2.6.0 release makes them (packaging/bridge/README.md); it has to be committed after that.
+            if (Test-Path "packaging/bridge/update-$p.json") {
+              Copy-Item "packaging/bridge/update-$p.json" "dist/update-$p.json"
+              FeedSign units "dist/update-$p.json" $p --legacy
+            } elseif ($env:VERSION -eq '2.6.0') {
+              FeedSign new $packages[$p] $env:VERSION $tag "dist/update-$p.json" --legacy
+              FeedSign units "dist/update-$p.json" $p --legacy
+              FeedSign verify "dist/update-$p.json" $packages[$p] --legacy
+            } else {
+              throw "packaging/bridge/update-$p.json is missing (2.6.0 bridge)"
+            }
             # latest-*.json: the feed copies before 2.5.2 read, kept as the 2.5.2 release's (the bridge): they update
             # to 2.5.2 first, then follow update-*.json. Carried unchanged; 2.5.2's exe and dmg never change.
             if (-not (Test-Path "packaging/bridge/latest-$p.json")) { throw "packaging/bridge/latest-$p.json is missing" }
@@ -187,9 +202,10 @@ jobs:
       - name: Verify with the built exe
         shell: powershell
         run: |
-          # (latest-*.json is the 2.5.2 bridge, checked when 2.5.2 was released)
-          $p = Start-Process dist/KakaoAdHide-windows.exe -ArgumentList '--verify-feed', 'dist/update-windows.json', 'dist/KakaoAdHide-windows.exe' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "update-windows.json does not verify against the keys in src/keys.rs (exit $($p.ExitCode))" }
+          # (update-*.json is the 2.6.0 bridge, checked by feed-sign verify when 2.6.0 was released; latest-*.json
+          # is the 2.5.2 bridge, checked when 2.5.2 was released)
+          $p = Start-Process dist/KakaoAdHide-windows.exe -ArgumentList '--verify-feed', 'dist/feed-windows.json', 'dist/KakaoAdHide-windows.exe' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "feed-windows.json does not verify against the keys in src/keys.rs (exit $($p.ExitCode))" }
 
       - name: Checksums for both platforms
         shell: powershell
@@ -203,9 +219,11 @@ jobs:
           name: release-files
           path: |
             dist/KakaoAdHide-windows.exe
+            dist/feed-windows.json
             dist/update-windows.json
             dist/latest-windows.json
             dist/KakaoAdHide-macos.dmg
+            dist/feed-macos.json
             dist/update-macos.json
             dist/latest-macos.json
             dist/SHA256SUMS.txt
@@ -231,14 +249,15 @@ jobs:
           hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" dist/KakaoAdHide-macos.dmg
           ditto "$mnt/KakaoAdHide.app" "$RUNNER_TEMP/KakaoAdHide.app"
           hdiutil detach "$mnt"
-          # (latest-macos.json is the 2.5.2 bridge, checked when 2.5.2 was released)
-          "$RUNNER_TEMP/KakaoAdHide.app/Contents/MacOS/KakaoAdHide" --verify-feed dist/update-macos.json dist/KakaoAdHide-macos.dmg \
-            || { echo "update-macos.json does not verify (exit $?): keys in src/keys.rs, certificate in src/platform/macos.rs"; exit 1; }
+          # (update-macos.json is the 2.6.0 bridge, checked by feed-sign verify when 2.6.0 was released; latest-macos.json
+          # is the 2.5.2 bridge, checked when 2.5.2 was released)
+          "$RUNNER_TEMP/KakaoAdHide.app/Contents/MacOS/KakaoAdHide" --verify-feed dist/feed-macos.json dist/KakaoAdHide-macos.dmg \
+            || { echo "feed-macos.json does not verify (exit $?): keys in src/keys.rs, certificate in src/platform/macos.rs"; exit 1; }
 
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft --title "${{ github.ref_name }}" --generate-notes \
-            dist/KakaoAdHide-windows.exe dist/update-windows.json dist/latest-windows.json \
-            dist/KakaoAdHide-macos.dmg dist/update-macos.json dist/latest-macos.json dist/SHA256SUMS.txt
+            dist/KakaoAdHide-windows.exe dist/feed-windows.json dist/update-windows.json dist/latest-windows.json \
+            dist/KakaoAdHide-macos.dmg dist/feed-macos.json dist/update-macos.json dist/latest-macos.json dist/SHA256SUMS.txt

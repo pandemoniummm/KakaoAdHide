@@ -5,6 +5,9 @@ name: units
 # after the new id is in ad-units/<platform>.txt on main. The apps pick the list up at their next update check.
 # The feeds' other fields and their signatures stay as they are. Copies before 2.5.1 ignore the list (it is signed
 # with Ed25519 now).
+#
+# Both feed names are re-signed: feed-*.json (2.6.0 and later, "TalkNap-units" messages) and update-*.json (2.5.2,
+# which skipped 2.6.0's names and still reads the old "KakaoAdHide-units" messages, hence --legacy).
 
 on:
   workflow_dispatch:
@@ -28,12 +31,14 @@ jobs:
           $tag = gh release view --repo "${{ github.repository }}" --json tagName -q .tagName
           if (-not $tag) { throw 'no published release' }
           New-Item -ItemType Directory -Force dist | Out-Null
-          # update-*.json from 2.5.2 on; latest-*.json is the bridge for older copies and isn't touched
-          gh release download $tag --repo "${{ github.repository }}" -D dist -p update-windows.json -p update-macos.json
+          # feed-*.json from 2.6.0 on, update-*.json for 2.5.2; latest-*.json is the older bridge and isn't touched
+          gh release download $tag --repo "${{ github.repository }}" -D dist -p feed-windows.json -p feed-macos.json -p update-windows.json -p update-macos.json
           foreach ($p in 'windows', 'macos') {
-            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units "dist/update-$p.json" $p
-            if ($LASTEXITCODE -ne 0) { throw "feed-sign units $p failed" }
+            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units "dist/feed-$p.json" $p
+            if ($LASTEXITCODE -ne 0) { throw "feed-sign units feed-$p failed" }
+            cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- units "dist/update-$p.json" $p --legacy
+            if ($LASTEXITCODE -ne 0) { throw "feed-sign units update-$p --legacy failed" }
           }
-          Get-Content dist/update-windows.json, dist/update-macos.json | Select-String 'version|DAN-'
-          gh release upload $tag --repo "${{ github.repository }}" --clobber dist/update-windows.json dist/update-macos.json
+          Get-Content dist/feed-windows.json, dist/feed-macos.json, dist/update-windows.json, dist/update-macos.json | Select-String 'version|DAN-'
+          gh release upload $tag --repo "${{ github.repository }}" --clobber dist/feed-windows.json dist/feed-macos.json dist/update-windows.json dist/update-macos.json
           "updated the feeds of $tag"
