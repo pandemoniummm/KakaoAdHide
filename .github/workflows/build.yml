@@ -43,9 +43,9 @@ jobs:
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: KakaoAdHide-windows
+          name: TalkNap-windows
           path: |
-            dist/KakaoAdHide-windows.exe
+            dist/TalkNap.exe
             dist/SHA256SUMS.txt
 
   build-macos:
@@ -67,14 +67,14 @@ jobs:
       # signing step is exercised before a tag; ad-hoc signed otherwise (pull requests from forks).
       - name: Build
         env:
-          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
-          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12_TALKNAP }}
+          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD_TALKNAP }}
         run: packaging/macos/build.sh --dmg
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: KakaoAdHide-macos
-          path: dist/KakaoAdHide-macos.dmg
+          name: TalkNap-macos
+          path: dist/TalkNap.dmg
 
   # Known vulnerabilities in the dependencies (RustSec advisory database). Fails on a vulnerability; warnings
   # (unmaintained, unsound) are shown but don't fail, as the two current ones are in Linux-only crates.
@@ -129,16 +129,17 @@ jobs:
 
       - name: Build and sign
         env:
-          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
-          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12_TALKNAP }}
+          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD_TALKNAP }}
         run: |
-          [[ -n "$MACOS_SIGNING_P12" ]] || { echo 'MACOS_SIGNING_P12 secret is not set (tools/new-macos-signing-cert.sh --set-secret)'; exit 1; }
+          # (build.sh reads MACOS_SIGNING_P12 / MACOS_SIGNING_PASSWORD; they hold the TalkNap certificate here)
+          [[ -n "$MACOS_SIGNING_P12" && -n "$MACOS_SIGNING_PASSWORD" ]] || { echo 'MACOS_SIGNING_P12_TALKNAP or MACOS_SIGNING_PASSWORD_TALKNAP secret is not set (tools/new-macos-signing-cert.sh --name TalkNap --set-secret)'; exit 1; }
           packaging/macos/build.sh --dmg --version "$VERSION"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-macos-dmg
-          path: dist/KakaoAdHide-macos.dmg
+          path: dist/TalkNap.dmg
 
   # The Windows app, and the signing of both feeds (the key stays on this one job).
   release:
@@ -174,7 +175,9 @@ jobs:
           if (-not $env:SIGNING_KEY_ED25519) { throw 'SIGNING_KEY_ED25519 secret is not set (docs/development.md)' }
           $tag = "${{ github.ref_name }}"
           function FeedSign { cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- @args; if ($LASTEXITCODE -ne 0) { throw "feed-sign $args failed" } }
-          $packages = @{ windows = 'dist/KakaoAdHide-windows.exe'; macos = 'dist/KakaoAdHide-macos.dmg' }
+          $packages = @{ windows = 'dist/TalkNap.exe'; macos = 'dist/TalkNap.dmg' }
+          # the 2.6.0 release's own assets keep their old names (the bridge check downloads them)
+          $old = @{ windows = 'KakaoAdHide-windows.exe'; macos = 'KakaoAdHide-macos.dmg' }
           foreach ($p in 'windows', 'macos') {
             # feed-*.json: the feed 2.6.0 and later read (Ed25519, "TalkNap" messages), with the bottom banner's ad
             # placement ids (ad-units/) signed on their own; units.yml re-signs them later
@@ -187,7 +190,7 @@ jobs:
             if (Test-Path "packaging/bridge/update-$p.json") {
               Copy-Item "packaging/bridge/update-$p.json" "dist/update-$p.json"
               # the committed bridge must still match the published 2.6.0 package (old message, old prefix)
-              $asset = Split-Path $packages[$p] -Leaf
+              $asset = $old[$p]
               gh release download v2.6.0 --repo "${{ github.repository }}" -D bridge-check -p $asset --clobber
               if ($LASTEXITCODE -ne 0) { throw "could not download $asset from the v2.6.0 release to check the bridge" }
               cargo run --locked --release --quiet --manifest-path tools/feed-sign/Cargo.toml -- verify "dist/update-$p.json" "bridge-check/$asset" --legacy
@@ -211,25 +214,38 @@ jobs:
         run: |
           # (update-*.json is the 2.6.0 bridge, checked by feed-sign verify when 2.6.0 was released; latest-*.json
           # is the 2.5.2 bridge, checked when 2.5.2 was released)
-          $p = Start-Process dist/KakaoAdHide-windows.exe -ArgumentList '--verify-feed', 'dist/feed-windows.json', 'dist/KakaoAdHide-windows.exe' -Wait -PassThru
+          $p = Start-Process dist/TalkNap.exe -ArgumentList '--verify-feed', 'dist/feed-windows.json', 'dist/TalkNap.exe' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "feed-windows.json does not verify against the keys in src/keys.rs (exit $($p.ExitCode))" }
+
+      # The proof before publishing that installed 2.6.0 apps take this release: the real 2.6.0 exe (in its own
+      # folder; --verify-update only reads the two files) checks the new feed and package (signature, TalkNap URL
+      # prefix, version newer than its own, size and hash).
+      - name: The 2.6.0 exe accepts this release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v2.6.0 --repo "${{ github.repository }}" -D v260 -p KakaoAdHide-windows.exe --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'could not download KakaoAdHide-windows.exe from the v2.6.0 release' }
+          $p = Start-Process v260/KakaoAdHide-windows.exe -ArgumentList '--verify-update', 'dist/feed-windows.json', 'dist/TalkNap.exe' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "the 2.6.0 exe does not accept dist/feed-windows.json and dist/TalkNap.exe (--verify-update exit code $($p.ExitCode); 3 = not verified, 4 = version, 1 = other)" }
 
       - name: Checksums for both platforms
         shell: powershell
         run: |
-          $hash = (Get-FileHash dist/KakaoAdHide-macos.dmg -Algorithm SHA256).Hash.ToLower()
-          "$hash  KakaoAdHide-macos.dmg" | Add-Content -Path dist/SHA256SUMS.txt -Encoding ascii
+          $hash = (Get-FileHash dist/TalkNap.dmg -Algorithm SHA256).Hash.ToLower()
+          "$hash  TalkNap.dmg" | Add-Content -Path dist/SHA256SUMS.txt -Encoding ascii
           Get-Content dist/SHA256SUMS.txt
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-files
           path: |
-            dist/KakaoAdHide-windows.exe
+            dist/TalkNap.exe
             dist/feed-windows.json
             dist/update-windows.json
             dist/latest-windows.json
-            dist/KakaoAdHide-macos.dmg
+            dist/TalkNap.dmg
             dist/feed-macos.json
             dist/update-macos.json
             dist/latest-macos.json
@@ -253,18 +269,34 @@ jobs:
       - name: Verify with the built app
         run: |
           mnt="$(mktemp -d)"
-          hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" dist/KakaoAdHide-macos.dmg
-          ditto "$mnt/KakaoAdHide.app" "$RUNNER_TEMP/KakaoAdHide.app"
+          hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" dist/TalkNap.dmg
+          ditto "$mnt/TalkNap.app" "$RUNNER_TEMP/TalkNap.app"
           hdiutil detach "$mnt"
           # (update-macos.json is the 2.6.0 bridge, checked by feed-sign verify when 2.6.0 was released; latest-macos.json
           # is the 2.5.2 bridge, checked when 2.5.2 was released)
-          "$RUNNER_TEMP/KakaoAdHide.app/Contents/MacOS/TalkNap" --verify-feed dist/feed-macos.json dist/KakaoAdHide-macos.dmg \
+          "$RUNNER_TEMP/TalkNap.app/Contents/MacOS/TalkNap" --verify-feed dist/feed-macos.json dist/TalkNap.dmg \
             || { echo "feed-macos.json does not verify (exit $?): keys in src/keys.rs, certificate in src/platform/macos.rs"; exit 1; }
+
+      # The proof before publishing that installed 2.6.0 apps take this release: the real 2.6.0 app (from its own
+      # disk image) checks the new feed and disk image (signature, TalkNap URL prefix, newer version, then
+      # TalkNap.app's bundle ID and "TalkNap Code Signing" certificate inside).
+      - name: The 2.6.0 app accepts this release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/v260-dl" "$RUNNER_TEMP/v260"
+          gh release download v2.6.0 --repo "${{ github.repository }}" -D "$RUNNER_TEMP/v260-dl" -p KakaoAdHide-macos.dmg --clobber
+          mnt="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" "$RUNNER_TEMP/v260-dl/KakaoAdHide-macos.dmg"
+          ditto "$mnt/KakaoAdHide.app" "$RUNNER_TEMP/v260/KakaoAdHide.app"
+          hdiutil detach "$mnt"
+          "$RUNNER_TEMP/v260/KakaoAdHide.app/Contents/MacOS/KakaoAdHide" --verify-update dist/feed-macos.json dist/TalkNap.dmg \
+            || { echo "the 2.6.0 app does not accept dist/feed-macos.json and dist/TalkNap.dmg (--verify-update exit $?; 3 = not verified, 4 = version, 1 = other)"; exit 1; }
 
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft --title "${{ github.ref_name }}" --generate-notes \
-            dist/KakaoAdHide-windows.exe dist/feed-windows.json dist/update-windows.json dist/latest-windows.json \
-            dist/KakaoAdHide-macos.dmg dist/feed-macos.json dist/update-macos.json dist/latest-macos.json dist/SHA256SUMS.txt
+            dist/TalkNap.exe dist/feed-windows.json dist/update-windows.json dist/latest-windows.json \
+            dist/TalkNap.dmg dist/feed-macos.json dist/update-macos.json dist/latest-macos.json dist/SHA256SUMS.txt

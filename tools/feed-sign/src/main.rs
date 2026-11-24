@@ -1,4 +1,4 @@
-//! Makes and signs KakaoAdHide's update feeds with Ed25519, the signature the app checks (src/feed.rs,
+//! Makes and signs TalkNap's update feeds with Ed25519, the signature the app checks (src/feed.rs,
 //! docs/update-feed.md). Not part of the app.
 //!
 //!   feed-sign new <package> <version> <tag> <feed.json>
