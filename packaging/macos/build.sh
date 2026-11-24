@@ -84,14 +84,14 @@ cd "$repo"
 bins=()
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
   rustup target list --installed | grep -qx "$target" || rustup target add "$target"
-  KAKAOADHIDE_VERSION="$version" MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --release --target "$target"
-  bins+=("$repo/target/$target/release/KakaoAdHide")
+  TALKNAP_VERSION="$version" MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --release --target "$target"
+  bins+=("$repo/target/$target/release/TalkNap")
 done
 
 app="$repo/target/KakaoAdHide.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-lipo -create -output "$app/Contents/MacOS/KakaoAdHide" "${bins[@]}"
+lipo -create -output "$app/Contents/MacOS/TalkNap" "${bins[@]}"
 sed "s/__VERSION__/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
 [[ -f "$here/AppIcon.icns" ]] && cp "$here/AppIcon.icns" "$app/Contents/Resources/"
 printf 'APPL????' > "$app/Contents/PkgInfo"

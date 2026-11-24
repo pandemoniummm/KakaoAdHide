@@ -18,13 +18,15 @@ use std::fmt;
 use std::io::Read;
 use std::path::Path;
 
-pub const REPO: &str = "pandemoniummm/KakaoAdHide";
-/// Where release feeds point their downloads (tools/feed-sign). Kept on the old repository name: GitHub redirects it
-/// after the repository is renamed to TalkNap, and copies before 2.6.0 accept only this prefix.
-pub const ASSET_PREFIX: &str = "https://github.com/pandemoniummm/KakaoAdHide/releases/download/";
-/// Download prefixes this copy accepts: the repository under its old name and under its new name (2.6.0+).
-pub const ASSET_PREFIXES: &[&str] = &[ASSET_PREFIX, "https://github.com/pandemoniummm/TalkNap/releases/download/"];
-pub const RELEASES_PAGE: &str = "https://github.com/pandemoniummm/KakaoAdHide/releases/latest";
+pub const REPO: &str = "pandemoniummm/TalkNap";
+/// Where release feeds point their downloads (tools/feed-sign): the repository under its name TalkNap.
+pub const ASSET_PREFIX: &str = "https://github.com/pandemoniummm/TalkNap/releases/download/";
+/// The repository's old name. The bridge feeds (update-*.json, latest-*.json) keep pointing here because the copies
+/// before 2.6.0 accept only this prefix (GitHub redirects it), and this copy still accepts it.
+pub const OLD_ASSET_PREFIX: &str = "https://github.com/pandemoniummm/KakaoAdHide/releases/download/";
+/// Download prefixes this copy accepts: the repository under its new name and under its old name.
+pub const ASSET_PREFIXES: &[&str] = &[ASSET_PREFIX, OLD_ASSET_PREFIX];
+pub const RELEASES_PAGE: &str = "https://github.com/pandemoniummm/TalkNap/releases/latest";
 
 pub fn feed_url(platform: &str) -> String {
     format!("https://github.com/{REPO}/releases/latest/download/feed-{platform}.json")
@@ -197,7 +199,7 @@ mod tests {
     fn signed_feed() -> (Feed, String) {
         let (k, public) = test_key();
         let sig = B64.encode(k.sign(&signed_message("2.5.1", SHA)).as_ref());
-        let json = format!(r#"{{"version":"2.5.1","url":"{ASSET_PREFIX}v2.5.1/KakaoAdHide-windows.exe","size":1,"sha256":"{SHA}","signature":"rsa","signature_ed25519":"{sig}"}}"#);
+        let json = format!(r#"{{"version":"2.5.1","url":"{ASSET_PREFIX}v2.5.1/TalkNap.exe","size":1,"sha256":"{SHA}","signature":"rsa","signature_ed25519":"{sig}"}}"#);
         (Feed::parse(json.as_bytes()).unwrap(), public)
     }
 
@@ -226,26 +228,32 @@ mod tests {
     #[test]
     fn urls() {
         let (mut f, _) = signed_feed();
-        f.url = "https://github.com/someone/KakaoAdHide/releases/download/v1/x.exe".into();
+        f.url = "https://github.com/someone/TalkNap/releases/download/v1/x.exe".into();
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
         f.url = format!("{ASSET_PREFIX}../../evil");
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
         // the repository under its new name (TalkNap) is accepted too
         f.url = "https://github.com/pandemoniummm/TalkNap/releases/download/v2.6.0/KakaoAdHide-windows.exe".into();
         assert_eq!(f.check_url(), Ok(()));
+        f.url = format!("{OLD_ASSET_PREFIX}v2.6.0/KakaoAdHide-windows.exe");
+        assert_eq!(f.check_url(), Ok(()));
+        f.url = format!("{ASSET_PREFIX}v2.7.0/TalkNap.exe");
+        assert_eq!(f.check_url(), Ok(()));
+        assert_eq!(ASSET_PREFIX, "https://github.com/pandemoniummm/TalkNap/releases/download/");
+        assert_eq!(ASSET_PREFIXES, [ASSET_PREFIX, OLD_ASSET_PREFIX]);
         f.url = "https://github.com/pandemoniummm/TalkNap/releases/download/../../evil".into();
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
         f.url = "https://github.com/pandemoniummm/TalkNapX/releases/download/v1/x.exe".into();
         assert_eq!(f.check_url(), Err(VerifyError::OutsideRepository));
         // the 2.6.0+ feed; update-*.json stays pinned for 2.5.2
-        assert_eq!(feed_url("macos"), "https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/feed-macos.json");
+        assert_eq!(feed_url("macos"), "https://github.com/pandemoniummm/TalkNap/releases/latest/download/feed-macos.json");
     }
 
     #[test]
     fn messages_use_the_new_name() {
         assert_eq!(signed_message("2.6.0", "AB"), b"TalkNap\n2.6.0\nab".to_vec());
         assert_eq!(units_message("macos", &["DAN-a".into()]), b"TalkNap-units\nmacos\nDAN-a".to_vec());
-        assert_eq!(feed_url("windows"), "https://github.com/pandemoniummm/KakaoAdHide/releases/latest/download/feed-windows.json");
+        assert_eq!(feed_url("windows"), "https://github.com/pandemoniummm/TalkNap/releases/latest/download/feed-windows.json");
     }
 
     #[test]

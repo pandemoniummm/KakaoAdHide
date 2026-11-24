@@ -258,7 +258,7 @@ jobs:
           hdiutil detach "$mnt"
           # (update-macos.json is the 2.6.0 bridge, checked by feed-sign verify when 2.6.0 was released; latest-macos.json
           # is the 2.5.2 bridge, checked when 2.5.2 was released)
-          "$RUNNER_TEMP/KakaoAdHide.app/Contents/MacOS/KakaoAdHide" --verify-feed dist/feed-macos.json dist/KakaoAdHide-macos.dmg \
+          "$RUNNER_TEMP/KakaoAdHide.app/Contents/MacOS/TalkNap" --verify-feed dist/feed-macos.json dist/KakaoAdHide-macos.dmg \
             || { echo "feed-macos.json does not verify (exit $?): keys in src/keys.rs, certificate in src/platform/macos.rs"; exit 1; }
 
       - name: Draft release

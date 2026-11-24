@@ -1,14 +1,14 @@
 [package]
-name = "kakaoadhide"
+name = "talknap"
 # The released version comes from VERSION (build scripts check that it matches this).
-version = "2.6.0"
+version = "2.7.0"
 edition = "2021"
 license = "MIT"
 description = "Empties the ad banner of KakaoTalk for Windows and macOS by serving a blank ad locally"
 publish = false
 
 [[bin]]
-name = "KakaoAdHide"
+name = "TalkNap"
 path = "src/main.rs"
 
 [dependencies]

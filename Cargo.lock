@@ -965,35 +965,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kakaoadhide"
-version = "2.6.0"
-dependencies = [
- "base64 0.22.1",
- "block2",
- "mslnk",
- "muda",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "objc2-user-notifications",
- "rcgen",
- "rfd",
- "ring",
- "rustls",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "tao",
- "tauri-winrt-notification",
- "time",
- "tray-icon",
- "ureq",
- "windows-sys 0.61.2",
- "winreg",
- "winresource",
-]
-
-[[package]]
 name = "keyboard-types"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1956,6 +1927,35 @@ dependencies = [
  "pkg-config",
  "toml 0.8.2",
  "version-compare",
+]
+
+[[package]]
+name = "talknap"
+version = "2.7.0"
+dependencies = [
+ "base64 0.22.1",
+ "block2",
+ "mslnk",
+ "muda",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-user-notifications",
+ "rcgen",
+ "rfd",
+ "ring",
+ "rustls",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "tao",
+ "tauri-winrt-notification",
+ "time",
+ "tray-icon",
+ "ureq",
+ "windows-sys 0.61.2",
+ "winreg",
+ "winresource",
 ]
 
 [[package]]

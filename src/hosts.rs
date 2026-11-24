@@ -7,8 +7,11 @@
 
 /// The hosts KakaoTalk loads its ad banner from (measured on KakaoTalk for Mac 26.10).
 pub const AD_HOSTS: &[&str] = &["serv.ds.kakao.com", "display.ad.daum.net"];
-pub const BEGIN: &str = "# KakaoAdHide begin (added by KakaoAdHide; removed when it is uninstalled)";
-pub const END: &str = "# KakaoAdHide end";
+pub const BEGIN: &str = "# TalkNap begin (added by TalkNap; removed when it is uninstalled)";
+pub const END: &str = "# TalkNap end";
+/// The block the KakaoAdHide builds (before 2.7.0) wrote; still recognized so it gets removed.
+pub const OLD_BEGIN_PREFIX: &str = "# KakaoAdHide begin";
+pub const OLD_END: &str = "# KakaoAdHide end";
 const OLD_MARKER: &str = "# KakaoAdHide";   // pre-release builds put this at the end of each entry
 
 #[cfg(windows)]
@@ -18,10 +21,15 @@ pub const HOSTS_PATH: &str = "/etc/hosts";
 
 fn newline(text: &str) -> &'static str { if text.contains("\r\n") { "\r\n" } else { "\n" } }
 
-fn is_begin(line: &str) -> bool { line.trim_end().starts_with("# KakaoAdHide begin") }
-fn is_end(line: &str) -> bool { line.trim_end() == END }
+fn is_new_begin(line: &str) -> bool { line.trim_end().starts_with("# TalkNap begin") }
+fn is_old_begin(line: &str) -> bool { line.trim_end().starts_with(OLD_BEGIN_PREFIX) }
+fn is_begin(line: &str) -> bool { is_new_begin(line) || is_old_begin(line) }
+fn is_end(line: &str) -> bool { let l = line.trim_end(); l == END || l == OLD_END }
 
-/// The text without our block (and without entries marked by pre-release builds).
+/// Whether the text still holds a block written by a KakaoAdHide build (before 2.7.0).
+pub fn has_old_block(text: &str) -> bool { text.lines().any(is_old_begin) }
+
+/// The text without our block, the old KakaoAdHide block, and entries marked by pre-release builds.
 pub fn remove(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut inside = false;
@@ -59,7 +67,9 @@ pub fn is_applied(text: &str) -> bool {
         if inside {
             if is_end(line) { break; }
             found.push(line.split_whitespace().collect::<Vec<_>>().join(" "));
-        } else if is_begin(line) {
+        } else if is_old_begin(line) {
+            return false;   // a block from the KakaoAdHide builds: rewritten
+        } else if is_new_begin(line) {
             inside = true;
         }
     }
@@ -121,6 +131,37 @@ mod tests {
         let old = format!("{MAC}{BEGIN}\n127.0.0.1 serv.ds.kakao.com\n::1 serv.ds.kakao.com\n127.0.0.1 display.ad.daum.net\n::1 display.ad.daum.net\n{END}\n");
         assert!(!is_applied(&old));
         assert_eq!(add(&old), add(MAC));
+    }
+
+    const OLD_BLOCK: &str = "# KakaoAdHide begin (added by KakaoAdHide; removed when it is uninstalled)
+127.0.0.1 serv.ds.kakao.com
+127.0.0.1 display.ad.daum.net
+# KakaoAdHide end
+";
+
+    #[test]
+    fn removes_old_and_new_blocks() {
+        let text = format!("{MAC}{OLD_BLOCK}10.0.0.1 example
+{BEGIN}
+127.0.0.1 serv.ds.kakao.com
+127.0.0.1 display.ad.daum.net
+{END}
+");
+        assert!(has_old_block(&text));
+        assert_eq!(remove(&text), format!("{MAC}10.0.0.1 example
+"));
+        assert!(!has_old_block(&remove(&text)));
+    }
+
+    #[test]
+    fn old_block_is_not_applied() {
+        let text = format!("{MAC}{OLD_BLOCK}");
+        assert!(!is_applied(&text));
+        assert!(has_old_block(&text));
+        assert!(!has_old_block(MAC) && !has_old_block(&add(MAC)));
+        let added = add(&text);
+        assert!(!added.contains("# KakaoAdHide"));
+        assert!(is_applied(&added));
     }
 
     #[test]

@@ -16,7 +16,9 @@ use time::{Duration, OffsetDateTime};
 
 pub const VALID_DAYS: i64 = 800;
 pub const RENEW_DAYS: i64 = 30;
-pub const COMMON_NAME: &str = "KakaoAdHide local ad server";
+pub const COMMON_NAME: &str = "TalkNap local ad server";
+/// The name the KakaoAdHide builds (before 2.7.0) gave their certificate.
+pub const OLD_COMMON_NAME: &str = "KakaoAdHide local ad server";
 
 pub struct Paths { pub pem: PathBuf, pub der: PathBuf, pub key: PathBuf, pub expiry: PathBuf }
 
@@ -31,10 +33,12 @@ pub fn paths(dir: &Path) -> Paths {
 
 pub struct Generated { pub cert_pem: String, pub cert_der: Vec<u8>, pub key_pem: String, pub not_after: OffsetDateTime }
 
-pub fn generate(now: OffsetDateTime) -> Result<Generated, rcgen::Error> {
+pub fn generate(now: OffsetDateTime) -> Result<Generated, rcgen::Error> { generate_with_name(now, COMMON_NAME) }
+
+fn generate_with_name(now: OffsetDateTime, cn: &str) -> Result<Generated, rcgen::Error> {
     let mut params = CertificateParams::new(AD_HOSTS.iter().map(|h| h.to_string()).collect::<Vec<_>>())?;
     let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, COMMON_NAME);
+    dn.push(DnType::CommonName, cn);
     params.distinguished_name = dn;
     params.is_ca = IsCa::ExplicitNoCa;
     params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
@@ -81,6 +85,13 @@ pub fn exists(dir: &Path) -> bool {
     p.pem.exists() && p.key.exists()
 }
 
+/// True when the saved certificate (ad-server.cer) was made by a KakaoAdHide build: its subject holds the old name.
+pub fn is_old(dir: &Path) -> bool {
+    let Ok(der) = std::fs::read(paths(dir).der) else { return false };
+    let needle = OLD_COMMON_NAME.as_bytes();
+    der.windows(needle.len()).any(|w| w == needle)
+}
+
 /// True when the certificate is missing or expires within RENEW_DAYS.
 pub fn needs_renewal(dir: &Path) -> bool {
     let p = paths(dir);
@@ -108,6 +119,24 @@ mod tests {
         assert!(has(&[0x06, 0x08, 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01]));   // EKU serverAuth OID
         // basicConstraints CA:FALSE is encoded as an empty SEQUENCE (or cA=false): never cA=TRUE
         assert!(!has(&[0x01, 0x01, 0xFF, 0x30]));
+    }
+
+    #[test]
+    fn old_certificate_is_detected() {
+        let dir = std::env::temp_dir().join(format!("kah-certs-old-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let now = OffsetDateTime::now_utc();
+        let new = generate(now).unwrap();
+        assert!(new.cert_der.windows(COMMON_NAME.len()).any(|w| w == COMMON_NAME.as_bytes()));
+        assert_eq!(COMMON_NAME, "TalkNap local ad server");
+        assert!(!is_old(&dir));   // no certificate file
+        std::fs::write(paths(&dir).der, &new.cert_der).unwrap();
+        assert!(!is_old(&dir));
+        let old = generate_with_name(now, OLD_COMMON_NAME).unwrap();
+        std::fs::write(paths(&dir).der, &old.cert_der).unwrap();
+        assert!(is_old(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

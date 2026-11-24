@@ -116,8 +116,8 @@ fn verify_with(feed_path: &Path, package: &Path, legacy: bool, keys: &[&str]) ->
     let data = std::fs::read(feed_path).map_err(|e| format!("{}: {e}", feed_path.display()))?;
     let f = feed::Feed::parse(&data).map_err(|e| e.to_string())?;
     f.check_url().map_err(|e| e.to_string())?;
-    if legacy && !f.url.strip_prefix(feed::ASSET_PREFIX).is_some_and(|rest| !rest.contains("..")) {
-        return Err(format!("url is not under {} (2.5.2 accepts only that)", feed::ASSET_PREFIX));
+    if legacy && !f.url.strip_prefix(feed::OLD_ASSET_PREFIX).is_some_and(|rest| !rest.contains("..")) {
+        return Err(format!("url is not under {} (2.5.2 accepts only that)", feed::OLD_ASSET_PREFIX));
     }
     let file = std::fs::File::open(package).map_err(|e| format!("{}: {e}", package.display()))?;
     let (sha, size) = feed::sha256_hex_reader(file).map_err(|e| format!("{}: {e}", package.display()))?;
@@ -140,7 +140,9 @@ fn new(package: &Path, version: &str, tag: &str, out: &Path, key_file: Option<&s
     if !feed::ed25519_valid(&msg, &sig, keys::PUBLIC_KEYS) { return Err("the new signature does not verify".into()); }
     let mut f = Map::new();
     f.insert("version".into(), version.into());
-    f.insert("url".into(), format!("{}{tag}/{name}", feed::ASSET_PREFIX).into());
+    // the bridge feeds (--legacy) must keep the old repository prefix: 2.5.2 accepts only that
+    let prefix = if legacy { feed::OLD_ASSET_PREFIX } else { feed::ASSET_PREFIX };
+    f.insert("url".into(), format!("{prefix}{tag}/{name}").into());
     f.insert("size".into(), size.into());
     f.insert("sha256".into(), sha.into());
     f.insert("page".into(), format!("https://github.com/{}/releases/tag/{tag}", feed::REPO).into());
@@ -193,7 +195,8 @@ mod tests {
         let msg = if legacy { legacy_message("2.6.0", &sha) } else { feed::signed_message("2.6.0", &sha) };
         let mut f = Map::new();
         f.insert("version".into(), "2.6.0".into());
-        f.insert("url".into(), format!("{}v2.6.0/pkg.bin", feed::ASSET_PREFIX).into());
+        let prefix = if legacy { feed::OLD_ASSET_PREFIX } else { feed::ASSET_PREFIX };
+        f.insert("url".into(), format!("{prefix}v2.6.0/pkg.bin").into());
         f.insert("size".into(), size.into());
         f.insert("sha256".into(), sha.into());
         f.insert("signature_ed25519".into(), B64.encode(key.sign(&msg).as_ref()).into());
@@ -226,8 +229,7 @@ mod tests {
     fn legacy_verify_rejects_the_talknap_prefix() {
         let (feed_path, package, public) = fixture("prefix", true);
         let keys = [public.as_str()];
-        let talknap = feed::ASSET_PREFIXES.iter().find(|p| p.contains("/TalkNap/")).unwrap();
-        let text = std::fs::read_to_string(&feed_path).unwrap().replace(feed::ASSET_PREFIX, talknap);
+        let text = std::fs::read_to_string(&feed_path).unwrap().replace(feed::OLD_ASSET_PREFIX, feed::ASSET_PREFIX);
         std::fs::write(&feed_path, text).unwrap();
         assert!(verify_with(&feed_path, &package, true, &keys).unwrap_err().contains("2.5.2"));
         std::fs::remove_dir_all(feed_path.parent().unwrap()).unwrap();

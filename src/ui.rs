@@ -100,7 +100,7 @@ impl App {
 
     fn build_menu(&mut self) -> Menu {
         let menu = Menu::new();
-        let header = MenuItem::new(format!("낮잠 {VERSION}"), false, None);
+        let header = MenuItem::new(format!("TalkNap {VERSION}"), false, None);
         let status = MenuItem::new(self.status_text(), false, None);
         use notices::menu as m;
         let setup = MenuItem::new(m::SETUP, self.status != Status::Serving, None);
@@ -142,7 +142,7 @@ impl App {
             let _ = t.set_icon_templated(Some(i));
             #[cfg(not(target_os = "macos"))]
             let _ = t.set_icon(Some(i));
-            let _ = t.set_tooltip(Some(format!("낮잠 {VERSION} - {}", self.status_text())));
+            let _ = t.set_tooltip(Some(format!("TalkNap {VERSION} - {}", self.status_text())));
         }
     }
 
@@ -214,7 +214,7 @@ impl App {
         let _ = target;
         let menu = self.build_menu();
         let i = icon(false, self.status != Status::Serving);
-        let builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(format!("낮잠 {VERSION}"));
+        let builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(format!("TalkNap {VERSION}"));
         #[cfg(target_os = "macos")]
         let builder = builder.with_icon_templated(i);
         #[cfg(not(target_os = "macos"))]
@@ -227,7 +227,7 @@ impl App {
         #[cfg(any(windows, target_os = "macos"))]
         {
             // the menu opened from the blank ad's button
-            self.menu_window = tao::window::WindowBuilder::new().with_visible(false).with_title("낮잠").build(target).ok();
+            self.menu_window = tao::window::WindowBuilder::new().with_visible(false).with_title("TalkNap").build(target).ok();
             if self.menu_window.is_some() {
                 let p = self.proxy.clone();
                 crate::server::set_menu_handler(menu_token(), move || { let _ = p.send_event(UserEvent::ShowMenu); });

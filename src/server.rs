@@ -130,8 +130,8 @@ fn serve(mut tcp: TcpStream, cfg: Arc<ServerConfig>) -> std::io::Result<()> {
     // keep-alive: a few requests per connection at most
     for _ in 0..32 {
         let Some(req) = read_request(&mut reader)? else { return Ok(()) };
-        if req.path == MENU_PATH { open_menu(&req.query); }
-        if req.path == STATE_PATH {
+        if is_menu_path(&req.path) { open_menu(&req.query); }
+        if is_state_path(&req.path) {
             log(&format!("{peer} {sni} {} {}", req.method, req.path));
             return stream_state(reader.get_mut(), &req);
         }
@@ -158,7 +158,10 @@ pub struct Request { pub method: String, pub path: String, pub query: String, pu
 // KakaoTalk isn't the active app. The web view can't tell (it never has the focus), so the app follows the
 // foreground window and the blank ad keeps one event stream open here (STATE_PATH?t=<menu token>), sent
 // "active" or "inactive" whenever it changes. Nothing is polled, and it's still only this computer.
-pub const STATE_PATH: &str = "/kakaoadhide/state";
+pub const STATE_PATH: &str = "/talknap/state";
+/// The path blank ads made by KakaoAdHide builds (before 2.7.0) ask; KakaoTalk may still show one of those.
+pub const OLD_STATE_PATH: &str = "/kakaoadhide/state";
+fn is_state_path(path: &str) -> bool { path == STATE_PATH || path == OLD_STATE_PATH }
 static STATE: Mutex<(bool, u64)> = Mutex::new((true, 0));   // (KakaoTalk active, change count)
 static STATE_CHANGED: Condvar = Condvar::new();
 static STREAMS: AtomicUsize = AtomicUsize::new(0);
@@ -215,7 +218,10 @@ Access-Control-Allow-Origin: {origin}\r\nConnection: close\r\n\r\n")?;
 // Opening the app's menu from the blank ad: its logo asks MENU_PATH?t=<token> on this server when clicked, and
 // the app shows its menu at the cursor. The token is random per run and only ever sent inside the blank ad, so
 // another page that happens to reach this server can't pop the menu up. No handler (macOS for now): no logo.
-pub const MENU_PATH: &str = "/kakaoadhide/menu";
+pub const MENU_PATH: &str = "/talknap/menu";
+/// The old path (see OLD_STATE_PATH).
+pub const OLD_MENU_PATH: &str = "/kakaoadhide/menu";
+fn is_menu_path(path: &str) -> bool { path == MENU_PATH || path == OLD_MENU_PATH }
 type MenuHandler = Box<dyn Fn() + Send>;
 static MENU: Mutex<Option<(String, MenuHandler)>> = Mutex::new(None);
 
@@ -323,6 +329,15 @@ mod tests {
         let text = out.lock().unwrap().clone();
         assert!(text.contains("text/event-stream") && text.contains("Access-Control-Allow-Origin: https://t1.kakaocdn.net"));
         clear_menu_handler();
+    }
+
+    #[test]
+    fn old_paths_still_served() {
+        assert_eq!((MENU_PATH, STATE_PATH), ("/talknap/menu", "/talknap/state"));
+        assert_eq!((OLD_MENU_PATH, OLD_STATE_PATH), ("/kakaoadhide/menu", "/kakaoadhide/state"));
+        assert!(is_menu_path(MENU_PATH) && is_menu_path(OLD_MENU_PATH) && !is_menu_path(STATE_PATH));
+        assert!(is_state_path(STATE_PATH) && is_state_path(OLD_STATE_PATH) && !is_state_path(MENU_PATH));
+        assert!(!is_menu_path("/kakaoadhide/state") && !is_state_path("/kakaoadhide/menu") && !is_menu_path("/menu"));
     }
 
     #[test]

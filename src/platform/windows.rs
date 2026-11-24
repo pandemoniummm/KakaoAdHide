@@ -230,7 +230,7 @@ pub fn install(quiet: bool) -> Result<(), String> {
 
     let (k, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(UNINSTALL_KEY).map_err(|e| e.to_string())?;
     let exe = installed_exe().display().to_string();
-    let _ = k.set_value("DisplayName", &"낮잠 (카카오톡 광고 칸 비우기)".to_string());
+    let _ = k.set_value("DisplayName", &"TalkNap (카카오톡 광고 칸 비우기)".to_string());
     let _ = k.set_value("DisplayVersion", &VERSION.to_string());
     let _ = k.set_value("Publisher", &"TalkNap".to_string());
     let _ = k.set_value("DisplayIcon", &exe);
@@ -422,13 +422,13 @@ pub fn start_kakao(at_sign_in: bool) {
 // ---------------------------------------------------------------- notifications (toasts)
 
 /// Registers the notification sender name (an unpackaged app's AppUserModelID needs a DisplayName to show as
-/// "낮잠" rather than an id). Cheap, so it's also done at each start (older installs, repaired settings).
+/// "TalkNap" rather than an id). Cheap, so it's also done at each start (older installs, repaired settings).
 pub fn register_notifications() {
     // the app icon for the notification header: a PNG next to the exe (removed on uninstall)
     let png = install_dir().join("icon.png");
     let icon_ok = std::fs::write(&png, include_bytes!("../../assets/icon-256.png")).is_ok();
     if let Ok((k, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(NOTIFY_APP_KEY) {
-        let _ = k.set_value("DisplayName", &"낮잠".to_string());
+        let _ = k.set_value("DisplayName", &"TalkNap".to_string());
         if icon_ok { let _ = k.set_value("IconUri", &png.display().to_string()); }
     }
 }
