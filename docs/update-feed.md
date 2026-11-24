@@ -103,4 +103,4 @@ macOS는 여기에 더해 dmg 안의 앱을 확인합니다.
 
 - 만들기: `tools/new-macos-signing-cert.sh` (개인키는 `~/.keys/`, 저장소 밖)
 - CI 등록: `tools/new-macos-signing-cert.sh --set-secret` → `MACOS_SIGNING_P12`, `MACOS_SIGNING_PASSWORD`
-- **인증서를 바꾸면** 설치된 앱이 새 버전을 거부합니다(수동 업데이트 필요). 나중에 Apple Developer ID로 옮길 때는, 먼저 두 서명을 모두 받아들이는 버전(`signing_requirement`에 팀 ID 추가)을 내보낸 다음에 서명을 바꿉니다.
+- **인증서를 바꾸면** 설치된 앱이 새 버전을 거부합니다(수동 업데이트 필요). 나중에 Apple Developer ID로 옮길 때는, 먼저 두 서명을 모두 받아들이는 버전(`src/platform/macos.rs`의 `requirement`에 팀 ID 추가)을 내보낸 다음에 서명을 바꿉니다.

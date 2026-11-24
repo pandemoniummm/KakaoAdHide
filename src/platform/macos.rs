@@ -16,11 +16,26 @@ pub const UPDATE_ASSET: &str = "KakaoAdHide-macos.dmg";
 /// SHA-1 of the self-signed "KakaoAdHide Code Signing" certificate (tools/new-macos-signing-cert.sh).
 pub const SIGNING_CERT_SHA1: &str = "DB044D3EF322C3D1E1961BB3D91063A3E07CF06A";
 
+/// What 2.5.x and earlier require of KakaoAdHide.app; requirement() must keep building exactly this.
+#[cfg(test)]
+fn signing_requirement() -> String { requirement(BUNDLE_ID, SIGNING_CERT_SHA1) }
+
+/// The renamed app that updates after 2.6.0 bring: its own bundle name, bundle identifier and
+/// "TalkNap Code Signing" certificate (tools/new-macos-signing-cert.sh --name TalkNap).
+pub const TALKNAP_APP_NAME: &str = "TalkNap.app";
+pub const TALKNAP_BUNDLE_ID: &str = "io.github.pandemoniummm.TalkNap";
+pub const SIGNING_CERT_SHA1_TALKNAP: &str = "82E7C479987E47FEAA2A457F64A8F09205F0CA77";
+
 /// What a downloaded update must be signed with, checked on top of the feed signature. Moving to a Developer ID
 /// later: first ship a version that also accepts it (... or anchor apple generic and certificate leaf[subject.OU]
 /// = "<TEAM>"), and only then sign with it.
-pub fn signing_requirement() -> String {
-    format!("identifier \"{BUNDLE_ID}\" and certificate leaf = H\"{SIGNING_CERT_SHA1}\"")
+fn requirement(id: &str, sha1: &str) -> String {
+    format!("identifier \"{id}\" and certificate leaf = H\"{sha1}\"")
+}
+
+/// Bundle identifier and certificate an update's app must have, by the app's name in the disk image.
+fn pair_for(app_name: &str) -> (&'static str, &'static str) {
+    if app_name == TALKNAP_APP_NAME { (TALKNAP_BUNDLE_ID, SIGNING_CERT_SHA1_TALKNAP) } else { (BUNDLE_ID, SIGNING_CERT_SHA1) }
 }
 
 fn home() -> PathBuf { PathBuf::from(std::env::var_os("HOME").unwrap_or_default()) }
@@ -199,30 +214,35 @@ pub fn can_update_in_place() -> bool {
     bundle_path().map(|a| in_applications(&a) && is_writable(a.parent().unwrap())).unwrap_or(false)
 }
 
-/// Mounts the disk image read-only and invisibly, copies KakaoAdHide.app out and checks it: bundle identifier,
-/// version equal to the feed's, and a valid code signature by our certificate. Detaches before returning.
-pub fn extract_verified_app(dmg: &Path, work: &Path, version: &str) -> Result<PathBuf, VerifyError> {
+/// Mounts the disk image read-only and invisibly, copies the app out (TalkNap.app if the image has it, else
+/// KakaoAdHide.app) and checks it: the bundle identifier and certificate that go with that name (pair_for),
+/// version equal to the feed's, and a valid code signature. Detaches before returning. The bool is true for
+/// TalkNap.app (the update renames the app).
+pub fn extract_verified_app(dmg: &Path, work: &Path, version: &str) -> Result<(PathBuf, bool), VerifyError> {
     let bad = |why: &str| VerifyError::BadPackage(why.to_string());
     let mount = work.join("mount");
     std::fs::create_dir_all(&mount).map_err(|e| bad(&e.to_string()))?;
     if !attach_image(dmg, &mount) { return Err(bad("디스크 이미지를 열지 못했습니다")); }
     let result = (|| {
-        let source = mount.join(APP_NAME);
+        let is_new = std::fs::symlink_metadata(mount.join(TALKNAP_APP_NAME)).is_ok();
+        let name = if is_new { TALKNAP_APP_NAME } else { APP_NAME };
+        let (id, sha1) = pair_for(name);
+        let source = mount.join(name);
         let meta = std::fs::symlink_metadata(&source).map_err(|_| bad("앱이 없습니다"))?;
         if !meta.is_dir() { return Err(bad("앱이 없습니다")); }
-        let copy = work.join(APP_NAME);
+        let copy = work.join(name);
         let ok = Command::new("/usr/bin/ditto").arg("--noqtn").arg(&source).arg(&copy).status().map(|s| s.success()).unwrap_or(false);
         if !ok { return Err(bad("앱을 복사하지 못했습니다")); }
         let plist = copy.join("Contents/Info.plist");
         let read = |key: &str| Command::new("/usr/bin/plutil").args(["-extract", key, "raw", "-o", "-"]).arg(&plist)
             .output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
-        if read("CFBundleIdentifier") != BUNDLE_ID { return Err(bad("번들 ID가 다릅니다")); }
+        if read("CFBundleIdentifier") != id { return Err(bad("번들 ID가 다릅니다")); }
         if read("CFBundleShortVersionString") != version { return Err(bad("버전이 다릅니다")); }
         let signed = Command::new("/usr/bin/codesign")
-            .args(["--verify", "--deep", "--strict"]).arg(format!("-R={}", signing_requirement())).arg(&copy)
+            .args(["--verify", "--deep", "--strict"]).arg(format!("-R={}", requirement(id, sha1))).arg(&copy)
             .stderr(std::process::Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
         if !signed { return Err(bad("코드 서명이 맞지 않습니다")); }
-        Ok(copy)
+        Ok((copy, is_new))
     })();
     detach_image(&mount);
     result
@@ -247,25 +267,38 @@ fn detach_image(mount: &Path) {
 }
 
 /// Swaps the app once the running copy (pid) has exited, putting the old one back if the swap fails, then
-/// stops any other copy still running from the old files and opens whichever is in place. Arguments: pid, new app, installed app, work folder (removed at the end).
+/// stops any other copy still running from the old files and opens whichever is in place. Arguments: pid, new app,
+/// where it goes, work folder (removed at the end), and, when the update renames the app, the installed app
+/// (old): it is removed once the new one is in place, and opened instead if the swap fails. A TalkNap.app left
+/// from an earlier try is replaced; one app is left in the folder either way.
 const REPLACE_SCRIPT: &str = r#"#!/bin/bash
-pid="$1"; src="$2"; dst="$3"; work="$4"
+pid="$1"; src="$2"; dst="$3"; work="$4"; old="${5:-}"
+[ "$old" = "$dst" ] && old=""
 for _ in $(seq 1 300); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
 sleep 0.3
 dir="$(dirname "$dst")"; name="$(basename "$dst")"
 staged="$dir/.$name.update-$$"; previous="$dir/.$name.previous-$$"
-if /usr/bin/ditto "$src" "$staged" && /bin/mv "$dst" "$previous"; then
-  if /bin/mv "$staged" "$dst"; then /bin/rm -rf "$previous"; else /bin/mv "$previous" "$dst"; fi
+ok=0
+if /usr/bin/ditto "$src" "$staged"; then
+  if [ ! -e "$dst" ] || /bin/mv "$dst" "$previous"; then
+    if /bin/mv "$staged" "$dst"; then ok=1; /bin/rm -rf "$previous"
+    elif [ -e "$previous" ]; then /bin/mv "$previous" "$dst"; fi
+  fi
 fi
 /bin/rm -rf "$staged"
+if [ "$ok" = 1 ] && [ -n "$old" ]; then
+  /usr/bin/pkill -f "^$old/Contents/MacOS/" 2>/dev/null && sleep 1
+  /bin/rm -rf "$old"
+fi
 # a copy still running from the old files (update started from the command line) would keep the old version
 /usr/bin/pkill -f "^$dst/Contents/MacOS/" 2>/dev/null && sleep 1
-/usr/bin/open "$dst"
+if [ "$ok" != 1 ] && [ -n "$old" ]; then /usr/bin/open "$old"; else /usr/bin/open "$dst"; fi
 /bin/rm -rf "$work"
 "#;
 
 /// Downloads, verifies and hands over to a script that swaps the app once this process has exited (restoring
-/// the old one if the swap fails) and opens it. The caller quits on Ok.
+/// the old one if the swap fails) and opens it. An update holding TalkNap.app goes in next to this app as
+/// TalkNap.app, and the script then removes this one. The caller quits on Ok.
 pub fn install_update(feed: &Feed) -> Result<(), crate::updater::InstallError> {
     use crate::updater::InstallError;
     let app = bundle_path().filter(|_| can_update_in_place()).ok_or(InstallError::NotInApplications)?;
@@ -275,11 +308,14 @@ pub fn install_update(feed: &Feed) -> Result<(), crate::updater::InstallError> {
     let dmg = work.join(UPDATE_ASSET);
     crate::updater::download(feed, &dmg)?;
     feed::verify_file(feed, &dmg, keys::PUBLIC_KEYS).map_err(InstallError::Verify)?;
-    let new_app = extract_verified_app(&dmg, &work, &feed.version).map_err(InstallError::Verify)?;
+    let (new_app, renamed) = extract_verified_app(&dmg, &work, &feed.version).map_err(InstallError::Verify)?;
     let script = work.join("replace.sh");
     std::fs::write(&script, REPLACE_SCRIPT).map_err(|e| InstallError::Io(e.to_string()))?;
-    Command::new("/bin/bash").arg(&script).arg(std::process::id().to_string()).arg(&new_app).arg(&app).arg(&work)
-        .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+    let dst = if renamed { app.with_file_name(TALKNAP_APP_NAME) } else { app.clone() };
+    let mut cmd = Command::new("/bin/bash");
+    cmd.arg(&script).arg(std::process::id().to_string()).arg(&new_app).arg(&dst).arg(&work);
+    if renamed { cmd.arg(&app); }
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
         .spawn().map_err(|e| InstallError::Io(e.to_string()))?;
     Ok(())
 }
@@ -530,7 +566,7 @@ mod tests {
         std::fs::write(new.join("v"), "2").unwrap();
         std::fs::write(dst.join("v"), "1").unwrap();
         let script = work.join("replace.sh");
-        std::fs::write(&script, REPLACE_SCRIPT.replace("/usr/bin/open \"$dst\"", "true")).unwrap();
+        std::fs::write(&script, REPLACE_SCRIPT.replace("/usr/bin/open", "true")).unwrap();
         let mut sleeper = Command::new("/bin/sleep").arg("1").spawn().unwrap();
         let pid = sleeper.id().to_string();
         let reaper = std::thread::spawn(move || sleeper.wait());   // a zombie would still answer kill -0
@@ -542,6 +578,56 @@ mod tests {
         let leftovers: Vec<_> = std::fs::read_dir(dir.join("Applications")).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(leftovers.len(), 1, "{leftovers:?}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // The renaming update: KakaoAdHide.app → TalkNap.app (old given as the fifth argument). `read_only` makes the
+    // Applications folder unwritable so the swap fails. Returns the folder's entries and their "v" files.
+    fn run_rename(tag: &str, read_only: bool) -> Vec<(String, String)> {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("kah-rename-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let apps = dir.join("Applications");
+        let (new, old, dst, work) = (dir.join("new/TalkNap.app"), apps.join(APP_NAME), apps.join(TALKNAP_APP_NAME), dir.join("work"));
+        for d in [&new, &old, &work] { std::fs::create_dir_all(d).unwrap(); }
+        std::fs::write(new.join("v"), "2").unwrap();
+        std::fs::write(old.join("v"), "1").unwrap();
+        let script = work.join("replace.sh");
+        std::fs::write(&script, REPLACE_SCRIPT.replace("/usr/bin/open", "true")).unwrap();
+        if read_only { std::fs::set_permissions(&apps, std::fs::Permissions::from_mode(0o555)).unwrap(); }
+        let mut sleeper = Command::new("/bin/sleep").arg("1").spawn().unwrap();
+        let pid = sleeper.id().to_string();
+        let reaper = std::thread::spawn(move || sleeper.wait());
+        let status = Command::new("/bin/bash").arg(&script).arg(&pid).arg(&new).arg(&dst).arg(&work).arg(&old).status().unwrap();
+        let _ = reaper.join();
+        std::fs::set_permissions(&apps, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(status.success());
+        assert!(!work.exists());
+        let mut found: Vec<_> = std::fs::read_dir(&apps).unwrap().flatten()
+            .map(|e| (e.file_name().to_string_lossy().into_owned(), std::fs::read_to_string(e.path().join("v")).unwrap_or_default()))
+            .collect();
+        found.sort();
+        let _ = std::fs::remove_dir_all(&dir);
+        found
+    }
+
+    #[test]
+    fn replace_script_renames_the_app() {
+        assert_eq!(run_rename("ok", false), [(TALKNAP_APP_NAME.to_string(), "2".to_string())]);
+    }
+
+    #[test]
+    fn replace_script_keeps_the_old_app_when_the_swap_fails() {
+        assert_eq!(run_rename("fail", true), [(APP_NAME.to_string(), "1".to_string())]);
+    }
+
+    #[test]
+    fn accepted_pairs() {
+        assert_eq!(requirement(BUNDLE_ID, SIGNING_CERT_SHA1), signing_requirement());   // 옛 짝은 지금 문자열 그대로
+        assert_eq!(signing_requirement(), "identifier \"io.github.pandemoniummm.KakaoAdHide\" and certificate leaf = H\"DB044D3EF322C3D1E1961BB3D91063A3E07CF06A\"");
+        let new = requirement(TALKNAP_BUNDLE_ID, SIGNING_CERT_SHA1_TALKNAP);
+        assert!(new.contains("io.github.pandemoniummm.TalkNap\"") && new.contains(SIGNING_CERT_SHA1_TALKNAP));
+        assert_eq!(pair_for(TALKNAP_APP_NAME), (TALKNAP_BUNDLE_ID, SIGNING_CERT_SHA1_TALKNAP));
+        assert_eq!(pair_for(APP_NAME), (BUNDLE_ID, SIGNING_CERT_SHA1));
     }
 
     // Run by hand against disk images made by packaging/macos/build.sh --dmg:
