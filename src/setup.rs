@@ -98,19 +98,38 @@ pub fn complete(m: &Missing) -> Result<(), String> {
 /// Makes a certificate with the new name in `certs/new/` and asks to trust it. Only once it is trusted does it
 /// take the place of the KakaoAdHide one (which goes to `certs/old/` until the old-name certificates are removed),
 /// so the server's paths stay the same; if the user declines, the old one keeps serving.
-fn replace_old_certificate(dir: &std::path::Path) -> Result<(), String> {
+fn replace_old_certificate(dir: &std::path::Path) -> Result<(), String> { replace_old_certificate_in(dir, &SystemStore) }
+
+fn replace_old_certificate_in(dir: &std::path::Path, store: &dyn CertStore) -> Result<(), String> {
     let new_dir = dir.join("new");
     let left = certs::paths(&new_dir);
-    if left.der.exists() { platform::untrust_certificate(&left); }   // from an interrupted earlier try
+    if left.der.exists() { store.untrust(&left); }   // from an interrupted earlier try
     let _ = std::fs::remove_dir_all(&new_dir);
     certs::create(&new_dir).map_err(|e| format!("인증서를 만들지 못했습니다: {e}"))?;
-    if let Err(e) = platform::trust_certificate(&certs::paths(&new_dir)) {
+    if let Err(e) = store.trust(&certs::paths(&new_dir)) {
+        // Its files are about to go, and with them the only way to find it in the store again (macOS keeps it).
+        store.forget_declined(&certs::paths(&new_dir));
         let _ = std::fs::remove_dir_all(&new_dir);
         return Err(e);
     }
     let moved = move_certificate(dir, &dir.join("old")).and_then(|_| move_certificate(&new_dir, dir));
     let _ = std::fs::remove_dir(&new_dir);
     moved.map_err(|e| format!("인증서를 옮기지 못했습니다: {e}"))
+}
+
+/// The certificate store as `replace_old_certificate` uses it (the tests stand in for the system's).
+trait CertStore {
+    fn trust(&self, p: &certs::Paths) -> Result<(), String>;
+    fn untrust(&self, p: &certs::Paths);
+    fn forget_declined(&self, p: &certs::Paths);
+}
+
+struct SystemStore;
+
+impl CertStore for SystemStore {
+    fn trust(&self, p: &certs::Paths) -> Result<(), String> { platform::trust_certificate(p) }
+    fn untrust(&self, p: &certs::Paths) { platform::untrust_certificate(p) }
+    fn forget_declined(&self, p: &certs::Paths) { platform::forget_declined_certificate(p) }
 }
 
 fn move_certificate(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
@@ -169,6 +188,7 @@ pub fn undo() -> Result<(), String> {
     certs::remove(&dir);
     let _ = std::fs::remove_dir_all(dir.join("new"));
     let _ = std::fs::remove_dir_all(dir.join("old"));
+    platform::remove_leftover_certificates();
     if platform::old_certificates_present() {
         if let Err(e) = platform::remove_old_certificates() { errors.push(e); }
     }
@@ -265,5 +285,77 @@ mod tests {
     #[test]
     fn renewal_is_not_a_move() {
         assert_eq!(steps(&state(C::Missing, true, H::Current, false)), [NewCert, Trust]);
+    }
+
+    /// Records what `replace_old_certificate_in` asks of the store: (call, SHA-1 of the certificate it names).
+    struct FakeStore { trusts: bool, calls: std::cell::RefCell<Vec<(&'static str, String)>> }
+
+    impl FakeStore {
+        fn new(trusts: bool) -> Self { FakeStore { trusts, calls: Default::default() } }
+        fn note(&self, call: &'static str, p: &certs::Paths) {
+            self.calls.borrow_mut().push((call, std::fs::read(&p.der).map(|d| sha1_hex(&d)).unwrap_or_default()));
+        }
+        fn calls(&self) -> Vec<(&'static str, String)> { self.calls.borrow().clone() }
+    }
+
+    impl CertStore for FakeStore {
+        fn trust(&self, p: &certs::Paths) -> Result<(), String> {
+            self.note("trust", p);
+            if self.trusts { Ok(()) } else { Err("declined".into()) }
+        }
+        fn untrust(&self, p: &certs::Paths) { self.note("untrust", p) }
+        fn forget_declined(&self, p: &certs::Paths) { self.note("forget", p) }
+    }
+
+    fn temp_cert_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("kah-setup-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        certs::create(&dir).unwrap();
+        dir
+    }
+
+    fn der_sha1(dir: &std::path::Path) -> String { sha1_hex(&std::fs::read(certs::paths(dir).der).unwrap()) }
+
+    #[test]
+    fn declined_new_certificate_is_removed_from_the_store() {
+        let dir = temp_cert_dir("declined");
+        let before = der_sha1(&dir);
+        let store = FakeStore::new(false);
+        assert!(replace_old_certificate_in(&dir, &store).is_err());
+        let calls = store.calls();
+        // The certificate it asked to trust is the one it then removes, while its files still existed.
+        assert_eq!(calls.iter().map(|c| c.0).collect::<Vec<_>>(), ["trust", "forget"]);
+        assert!(!calls[0].1.is_empty() && calls[0].1 == calls[1].1 && calls[0].1 != before);
+        assert!(!dir.join("new").exists());
+        assert_eq!(der_sha1(&dir), before);   // the old one keeps serving
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trusted_new_certificate_takes_the_old_ones_place() {
+        let dir = temp_cert_dir("trusted");
+        let before = der_sha1(&dir);
+        let store = FakeStore::new(true);
+        assert!(replace_old_certificate_in(&dir, &store).is_ok());
+        let calls = store.calls();
+        assert_eq!(calls.iter().map(|c| c.0).collect::<Vec<_>>(), ["trust"]);
+        assert_eq!(der_sha1(&dir), calls[0].1);
+        assert_eq!(der_sha1(&dir.join("old")), before);
+        assert!(!dir.join("new").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn certificate_left_from_an_interrupted_try_is_untrusted_first() {
+        let dir = temp_cert_dir("interrupted");
+        certs::create(&dir.join("new")).unwrap();
+        let left = der_sha1(&dir.join("new"));
+        let store = FakeStore::new(false);
+        let _ = replace_old_certificate_in(&dir, &store);
+        let calls = store.calls();
+        assert_eq!(calls.iter().map(|c| c.0).collect::<Vec<_>>(), ["untrust", "trust", "forget"]);
+        assert_eq!(calls[0].1, left);
+        assert_ne!(calls[1].1, left);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

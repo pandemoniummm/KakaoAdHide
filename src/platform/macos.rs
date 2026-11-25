@@ -88,14 +88,46 @@ pub fn untrust_certificate(p: &Paths) {
     }
 }
 
-/// SHA-1 hashes of the login keychain's certificates named like the old CN (`security find-certificate -Z`).
-fn old_certificate_hashes() -> Vec<String> {
+/// Deletes a certificate `trust_certificate` failed on from the login keychain. `add-trusted-cert` imports the
+/// certificate before macOS asks for the password, so a declined (or failed) ask leaves it there without trust
+/// settings; once its files are gone nothing else would find it again. Deleted by its SHA-1 only, without
+/// `remove-trusted-cert` or `-t`: those change the user trust settings, which can ask for the password a second
+/// time right after the user said no, and there are none to remove. Deleting the item from the (unlocked) login
+/// keychain doesn't ask.
+pub fn forget_declined_certificate(p: &Paths) {
+    if let Ok(der) = std::fs::read(&p.der) {
+        let _ = Command::new("/usr/bin/security")
+            .args(["delete-certificate", "-Z", &setup::sha1_hex(&der)]).arg(login_keychain())
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+    }
+}
+
+/// SHA-1 hashes of the login keychain's certificates whose name contains `cn` (`security find-certificate -Z`).
+fn certificate_hashes(cn: &str) -> Vec<String> {
     let Ok(out) = Command::new("/usr/bin/security")
-        .args(["find-certificate", "-a", "-c", crate::certs::OLD_COMMON_NAME, "-Z"]).arg(login_keychain())
+        .args(["find-certificate", "-a", "-c", cn, "-Z"]).arg(login_keychain())
         .stderr(std::process::Stdio::null()).output() else { return Vec::new() };
     if !out.status.success() { return Vec::new(); }
-    String::from_utf8_lossy(&out.stdout).lines()
+    sha1_hashes(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The `SHA-1 hash:` lines of a `security find-certificate -Z` listing.
+fn sha1_hashes(listing: &str) -> Vec<String> {
+    listing.lines()
         .filter_map(|l| l.trim().strip_prefix("SHA-1 hash:")).map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect()
+}
+
+fn old_certificate_hashes() -> Vec<String> { certificate_hashes(crate::certs::OLD_COMMON_NAME) }
+
+/// Deletes the certificates with our name that are still in the login keychain after the ones in `certs/` were
+/// removed: left when the user declined trusting one before `forget_declined_certificate` existed (2.7.0 test
+/// builds), or whose files were lost. The name is ours alone. Without `-t`, so it doesn't ask for the password: such a certificate has no trust
+/// settings, and one that did (its files lost) would keep only settings for a certificate that is gone.
+pub fn remove_leftover_certificates() {
+    for hash in certificate_hashes(crate::certs::COMMON_NAME) {
+        let _ = Command::new("/usr/bin/security").args(["delete-certificate", "-Z", &hash]).arg(login_keychain())
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+    }
 }
 
 /// True when the login keychain holds a certificate whose name is the old CN.
@@ -744,6 +776,19 @@ pub fn notify(title: &str, text: &str, buttons: &[(&str, &str)], on_click: Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sha1_hashes_from_find_certificate_listing() {
+        let listing = "SHA-256 hash: 9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08\n\
+                       SHA-1 hash: A94A8FE5CCB19BA61C4C0873D391E987982FBBD3\n\
+                       keychain: \"/Users/u/Library/Keychains/login.keychain-db\"\n\
+                       attributes:\n    \"alis\"<blob>=\"TalkNap local ad server\"\n\
+                       SHA-256 hash: 60303AE22B998861BCE3B28F33EEC1BE758A213C86C93C076DBE9F558C11C752\n\
+                       SHA-1 hash: 356A192B7913B04C54574D18C28D46E6395428AB\n\
+                       SHA-1 hash: \n";
+        assert_eq!(sha1_hashes(listing), ["A94A8FE5CCB19BA61C4C0873D391E987982FBBD3", "356A192B7913B04C54574D18C28D46E6395428AB"]);
+        assert!(sha1_hashes("").is_empty());
+    }
 
     // The swap script, against throwaway folders: replaces the app after the given process has exited.
     #[test]

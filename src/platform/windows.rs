@@ -110,6 +110,13 @@ pub fn untrust_certificate(p: &Paths) {
     if let Some(t) = thumbprint(p) { let _ = certutil(&[OsStr::new("-user"), OsStr::new("-delstore"), OsStr::new("Root"), OsStr::new(&t)]); }
 }
 
+/// Nothing to do: `certutil -addstore` adds nothing when the user declines, so no certificate is left behind
+/// (macOS imports it before asking).
+pub fn forget_declined_certificate(_p: &Paths) {}
+
+/// Nothing to do: see `forget_declined_certificate`.
+pub fn remove_leftover_certificates() {}
+
 /// True when the user's trusted roots hold a certificate whose name is the old CN (exit code 0; not found is nonzero).
 pub fn old_certificates_present() -> bool {
     certutil(&[OsStr::new("-user"), OsStr::new("-store"), OsStr::new("Root"), OsStr::new(crate::certs::OLD_COMMON_NAME)])
