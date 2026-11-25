@@ -125,20 +125,20 @@ tools/new-macos-signing-cert.sh --set-secret
      ```powershell
      cargo update -p talknap
      ```
-2. 커밋하고 작업 브랜치(`wip/<내용>`)를 푸시한 뒤 PR을 엽니다. `main`은 보호돼 있어 PR로만 바뀝니다(승인 0명). 아직 합치지 않습니다.
+2. 커밋하고 브랜치를 푸시한 뒤 PR을 열어 `main`에 합칩니다. `main`은 보호돼 있어 PR로만 바뀝니다(승인 0명). `main`에 합쳐도 릴리스는 태그를 달 때만 만들어집니다.
    ```powershell
-   git add -A; git commit -m "..."; git push origin wip/<내용>
+   git switch -c chore/release-2.1.0; git add -A; git commit -m "chore: 2.1.0"; git push origin chore/release-2.1.0
    ```
-3. PR의 맨 끝 커밋(head)에 같은 이름의 태그를 올립니다. 태그 이름(`v2.1.0`)과 `VERSION`(`2.1.0`)이 다르면 CI가 멈춥니다.
+3. 합친 뒤 `main`의 그 커밋에 같은 이름의 태그를 올립니다. 태그 이름(`v2.1.0`)과 `VERSION`(`2.1.0`)이 다르면 CI가 멈춥니다.
    ```powershell
-   git tag -a v2.1.0 -m v2.1.0; git push origin v2.1.0
+   git switch main; git pull; git tag -a v2.1.0 -m v2.1.0; git push origin v2.1.0
    ```
 4. GitHub Actions가 두 플랫폼 빌드 → 업데이트 정보 서명 → 각 플랫폼 앱으로 서명 검증 → **초안(draft) 릴리스** 생성까지 합니다.
    올라가는 파일: `TalkNap.exe`, `feed-windows.json`, `update-windows.json`, `latest-windows.json`, `TalkNap.dmg`, `feed-macos.json`, `update-macos.json`, `latest-macos.json`, `SHA256SUMS.txt`
    - `update-*.json`(2.5.2가 읽음)과 `latest-*.json`(2.5.1 이하가 읽음)은 브릿지 파일로, `packaging/bridge/`의 파일을 그대로 올립니다([update-feed.md](update-feed.md#브릿지-버전-252)). 옛 이름 사본(`KakaoAdHide-*.exe` 등)은 올리지 않습니다.
    - CI는 실제 v2.6.0 릴리스의 `KakaoAdHide-windows.exe`, `KakaoAdHide-macos.dmg`를 내려받아 `--verify-update`로 새 피드와 새 파일을 확인합니다. 이 확인이 실패하면 설치된 2.6.0이 이 릴리스를 받지 못한다는 뜻이니 공개하지 않습니다.
 5. 초안을 확인하고, 사용자 확인을 받은 뒤 릴리스 노트를 쓰고 **Publish release**를 누르면, 그때부터 사용자에게 업데이트 알림이 갑니다.
-6. 릴리스를 공개한 다음에 PR을 합칩니다. 소개 페이지(`site/`)는 main이 바뀔 때 배포되므로, 내려받기 파일(`TalkNap.exe`, `TalkNap.dmg`)이 올라간 뒤에 합쳐야 페이지의 링크가 깨지지 않습니다. 합친 브랜치는 자동으로 지워집니다.
+6. 소개 페이지(`site/`)는 `main`이 바뀔 때 바로 배포됩니다. 아직 내지 않은 릴리스 파일을 가리키게 바꾸는 변경(내려받기 파일 이름 등)은 릴리스를 공개한 다음에 합칩니다.
 
 공개 전에 태그를 다시 붙여야 하면(CI 실패를 고친 뒤 등):
 
@@ -146,4 +146,4 @@ tools/new-macos-signing-cert.sh --set-secret
 git push origin :refs/tags/v2.1.0; git tag -d v2.1.0
 ```
 
-그다음 3번을 다시 합니다. 공개한 태그는 옮기지 않습니다.
+고칠 것을 PR로 `main`에 합친 뒤 3번을 다시 합니다. 공개한 태그는 옮기지 않습니다.
