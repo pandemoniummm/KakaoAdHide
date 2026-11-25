@@ -213,27 +213,37 @@ fn launch_agent() -> PathBuf { launch_agent_for(BUNDLE_ID) }
 
 pub fn login_item_enabled() -> bool { launch_agent().exists() }
 
-/// The LaunchAgent that opens `app` at login. AssociatedBundleIdentifiers makes "Allow in the Background"
-/// (System Settings > General > Login Items) show the app's name rather than `open` from an unknown developer.
+/// The executable inside the bundle (CFBundleExecutable).
+const EXECUTABLE: &str = "TalkNap";
+
+/// What the LaunchAgent runs: the app's own executable, not `/usr/bin/open -a <app>`. macOS names a launch item
+/// after its executable ("Allow in the Background" in System Settings > General > Login Items, and the "Background
+/// Items Added" notification), so `open` showed up as an unknown "open" app. AssociatedBundleIdentifiers can't fix
+/// that: macOS ignores it for an executable without a Team ID (self-signed). With the executable it shows
+/// "TalkNap" (with a plain executable icon, for the same reason).
+fn login_executable(app: &Path) -> PathBuf { app.join("Contents/MacOS").join(EXECUTABLE) }
+
+/// The LaunchAgent that starts `app` at login. The app is then the launchd job itself, and launchd kills the rest
+/// of the job's process group when it exits: AbandonProcessGroup keeps the update's swap script (REPLACE_SCRIPT,
+/// started by the app just before it quits) running.
 fn login_agent_plist(app: &Path) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>{BUNDLE_ID}</string>
-<key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-g</string><string>-a</string><string>{}</string><string>--args</string><string>--run</string></array>
+<key>ProgramArguments</key><array><string>{}</string><string>--run</string></array>
 <key>RunAtLoad</key><true/>
-<key>AssociatedBundleIdentifiers</key><array><string>{BUNDLE_ID}</string></array>
+<key>AbandonProcessGroup</key><true/>
 </dict></plist>
 "#,
-        xml_escape(&app.display().to_string())
+        xml_escape(&login_executable(app).display().to_string())
     )
 }
 
-/// Whether a LaunchAgent plist (as login_agent_plist writes it) opens `app`.
-fn plist_points_to(plist: &str, app: &Path) -> bool {
-    plist.contains(&format!("<string>{}</string>", xml_escape(&app.display().to_string())))
-}
+/// Whether a LaunchAgent plist is the one login_agent_plist writes for `app` (a 2.7.0 test build's
+/// `open -a` agent isn't: it is rewritten).
+fn plist_points_to(plist: &str, app: &Path) -> bool { plist == login_agent_plist(app) }
 
 pub fn set_login_item(on: bool) -> Result<(), String> {
     let path = launch_agent();
@@ -334,8 +344,9 @@ fn regex_escape(s: &str) -> String {
 }
 
 /// The login item (issue #15): KakaoAdHide's LaunchAgent opens the old app, which is gone after the update, so
-/// it is replaced by ours. Ours is rewritten when it opens another path (the app was moved). With neither, the
-/// user turned it off: left off. Login Items the user added in System Settings are not touched.
+/// it is replaced by ours. Ours is rewritten when it isn't what login_agent_plist writes for this app (the app was
+/// moved, or an earlier build wrote it differently). With neither, the user turned it off: left off.
+/// Login Items the user added in System Settings are not touched.
 fn move_login_item(app: &Path) {
     let old = launch_agent_for(OLD_BUNDLE_ID);
     if old.exists() {
@@ -817,10 +828,17 @@ mod tests {
     #[test]
     fn login_agent_plist_has_label_and_app() {
         let plist = login_agent_plist(Path::new("/Applications/TalkNap.app"));
-        assert_eq!(plist.matches("<string>io.github.pandemoniummm.TalkNap</string>").count(), 2, "{plist}");   // Label, AssociatedBundleIdentifiers
-        assert!(plist.contains("<string>/Applications/TalkNap.app</string>"));
-        assert!(plist.contains("<string>--args</string><string>--run</string>"));
+        assert!(plist.contains("<key>Label</key><string>io.github.pandemoniummm.TalkNap</string>"), "{plist}");
+        assert!(plist.contains("<array><string>/Applications/TalkNap.app/Contents/MacOS/TalkNap</string><string>--run</string></array>"));
         assert!(plist.contains("<key>RunAtLoad</key><true/>"));
+        assert!(plist.contains("<key>AbandonProcessGroup</key><true/>"));
+        assert!(!plist.contains("/usr/bin/open"));
+    }
+
+    #[test]
+    fn login_executable_is_the_bundle_executable() {
+        let plist = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/packaging/macos/Info.plist")).unwrap();
+        assert!(plist.contains(&format!("<key>CFBundleExecutable</key>\n\t<string>{EXECUTABLE}</string>")), "{plist}");
     }
 
     #[test]
@@ -831,6 +849,11 @@ mod tests {
         let odd = Path::new("/Users/a/Applications/R&D <x>/TalkNap.app");
         assert!(login_agent_plist(odd).contains("R&amp;D &lt;x&gt;"));
         assert!(plist_points_to(&login_agent_plist(odd), odd));
+        // a 2.7.0 test build's agent (open -a) is rewritten
+        let open_agent = login_agent_plist(new).replace(
+            "<string>/Applications/TalkNap.app/Contents/MacOS/TalkNap</string>",
+            "<string>/usr/bin/open</string><string>-g</string><string>-a</string><string>/Applications/TalkNap.app</string><string>--args</string>");
+        assert!(!plist_points_to(&open_agent, new));
     }
 
     #[test]
