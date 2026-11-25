@@ -127,7 +127,7 @@ tools/new-macos-signing-cert.sh --set-secret
      ```
 2. 커밋하고 브랜치를 푸시한 뒤 PR을 열어 `main`에 합칩니다. `main`은 보호돼 있어 PR로만 바뀝니다(승인 0명). `main`에 합쳐도 릴리스는 태그를 달 때만 만들어집니다.
    ```powershell
-   git switch -c chore/release-2.1.0; git add -A; git commit -m "chore: 2.1.0"; git push origin chore/release-2.1.0
+   git switch -c chore/release-2.1.0; git add -A; git commit -m "chore: 2.1.0"; git push origin chore/release-2.1.0; gh pr create --fill
    ```
 3. 합친 뒤 `main`의 그 커밋에 같은 이름의 태그를 올립니다. 태그 이름(`v2.1.0`)과 `VERSION`(`2.1.0`)이 다르면 CI가 멈춥니다.
    ```powershell
@@ -138,7 +138,7 @@ tools/new-macos-signing-cert.sh --set-secret
    - `update-*.json`(2.5.2가 읽음)과 `latest-*.json`(2.5.1 이하가 읽음)은 브릿지 파일로, `packaging/bridge/`의 파일을 그대로 올립니다([update-feed.md](update-feed.md#브릿지-버전-252)). 옛 이름 사본(`KakaoAdHide-*.exe` 등)은 올리지 않습니다.
    - CI는 실제 v2.6.0 릴리스의 `KakaoAdHide-windows.exe`, `KakaoAdHide-macos.dmg`를 내려받아 `--verify-update`로 새 피드와 새 파일을 확인합니다. 이 확인이 실패하면 설치된 2.6.0이 이 릴리스를 받지 못한다는 뜻이니 공개하지 않습니다.
 5. 초안을 확인하고, 사용자 확인을 받은 뒤 릴리스 노트를 쓰고 **Publish release**를 누르면, 그때부터 사용자에게 업데이트 알림이 갑니다.
-6. 소개 페이지(`site/`)는 `main`이 바뀔 때 바로 배포됩니다. 아직 내지 않은 릴리스 파일을 가리키게 바꾸는 변경(내려받기 파일 이름 등)은 릴리스를 공개한 다음에 합칩니다.
+6. 소개 페이지(`site/`)는 `main`이 바뀔 때 바로 배포되고, README는 저장소 첫 화면에 바로 보입니다. 아직 내지 않은 릴리스 파일이나 기능을 안내하는 변경(내려받기 파일 이름, 새 기능 설명 등)은 릴리스를 공개한 다음에 합칩니다.
 
 공개 전에 태그를 다시 붙여야 하면(CI 실패를 고친 뒤 등):
 
