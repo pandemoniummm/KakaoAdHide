@@ -2,7 +2,7 @@
 //! the menu labels and the status line. The rest of the code picks one of these and shows it with `ui::show`,
 //! `ui::ask` or `ui::error`; how it's shown (a Windows notification, a message box) is up to the platform.
 //!
-//! Style: short titles ("업데이트 완료", "설정 실패"), bodies of at most two lines, everyday words rather than
+//! Style: short titles ("업데이트 완료", "광고 칸 비우기 실패"), bodies of at most two lines, everyday words rather than
 //! technical ones. Error details (why a file didn't verify, which program holds port 443) come from where the
 //! error happened and are put on the second line.
 
@@ -29,8 +29,8 @@ pub const UPDATE: &str = "업데이트";
 pub const LATER: &str = "나중에";
 /// The ad addresses no longer come to this computer (another program or an antivirus put the hosts file back).
 /// Shown with `SET_UP_AGAIN` / `LATER`; the notification itself or `SET_UP_AGAIN` sets the hosts file up again.
-pub fn unrouted() -> Notice { notice("광고 차단이 풀렸습니다", "hosts 파일 설정이 빠져 광고가 다시 보일 수 있습니다".into()) }
-pub const SET_UP_AGAIN: &str = "다시 설정";
+pub fn unrouted() -> Notice { notice("광고 차단이 풀렸습니다", "hosts 파일이 바뀌어 광고가 다시 보일 수 있습니다\n누르면 다시 비웁니다(관리자 권한 필요)".into()) }
+pub const SET_UP_AGAIN: &str = "다시 비우기";
 pub fn up_to_date() -> Notice { notice("최신 버전", format!("TalkNap {VERSION}")) }
 pub fn installed() -> Notice { notice("설치 완료", "로그인하면 함께 켜집니다\n메뉴: 카카오톡 빈 칸 왼쪽 버튼".into()) }
 pub fn removed() -> Notice { notice("제거 완료", "TalkNap을 지웠습니다".into()) }
@@ -41,15 +41,16 @@ pub fn moving_postponed() -> Notice { notice("이름 바꾸기를 미뤘습니�
 
 pub fn first_setup() -> Ask {
     Ask {
-        title: "처음 설정".into(),
-        body: "카카오톡 광고 칸을 비우려면 처음 한 번 설정이 필요합니다.\n\n\
-• 이 컴퓨터 전용 인증서를 만들어 등록합니다. 카카오톡 광고 주소 두 개(serv.ds.kakao.com, display.ad.daum.net)에만 \
-쓸 수 있고, 다른 사이트에는 쓸 수 없습니다.\n\
-• hosts 파일에 광고 주소를 이 컴퓨터로 보내는 두 줄을 넣습니다(관리자 권한 필요).\n\
-• 그러면 광고 대신 빈 칸이 보입니다. 광고 서버에는 접속하지 않습니다.\n\n\
-같은 광고 주소를 쓰는 웹사이트(다음 등)의 광고도 함께 안 보일 수 있습니다. 제거하면 모두 원래대로 돌아갑니다."
+        title: "광고 칸 비우기".into(),
+        // Short lines: a message box wraps long ones in the middle of a word.
+        body: "카카오톡 광고 칸을 비우려면 처음 한 번 준비가 필요합니다.\n\n\
+• 이 컴퓨터 전용 인증서를 등록합니다.\n   카카오톡 광고 주소 두 곳에만 쓰입니다.\n   serv.ds.kakao.com, display.ad.daum.net\n\
+• hosts 파일에 두 줄을 넣습니다(관리자 권한 필요).\n\n\
+광고 서버에는 접속하지 않고, 광고 대신 빈 칸이 보입니다.\n\
+다음 등 일부 사이트의 광고도 함께 안 보일 수 있습니다.\n\
+제거하면 모두 원래대로 돌아갑니다."
             .into(),
-        ok: "설정하기",
+        ok: "시작",
         cancel: "나중에",
     }
 }
@@ -58,10 +59,11 @@ pub fn first_setup() -> Ask {
 pub fn moving() -> Ask {
     #[cfg(not(target_os = "macos"))]
     let body = "KakaoAdHide가 TalkNap으로 이름을 바꿨습니다.\n\
-새 이름으로 인증서와 hosts 설정을 다시 하고 옛 것을 지웁니다. 확인 창이 두세 번 뜹니다.";
+인증서와 hosts 파일을 새 이름으로 옮깁니다(확인 창 두세 번).\n\
+지금 하려면 확인, 나중에 하려면 취소를 누르세요.";
     #[cfg(target_os = "macos")]
     let body = "KakaoAdHide가 TalkNap으로 이름을 바꿨습니다.\n\
-새 이름으로 인증서와 hosts 설정을 다시 하고 옛 것을 지웁니다. 확인 창이 두세 번 뜨고, 알림 허용도 다시 묻습니다.";
+인증서와 hosts 파일을 새 이름으로 바꾸고 옛 것을 지웁니다. 확인 창이 두세 번 뜨고, 알림 허용도 다시 묻습니다.";
     Ask { title: "이름 바꾸기".into(), body: body.into(), ok: "계속", cancel: LATER }
 }
 
@@ -115,7 +117,7 @@ pub fn check_failed(why: &str) -> Problem { problem("업데이트 확인 실패"
 pub fn check_failed_offline(why: &str) -> Problem { problem("업데이트 확인 실패", format!("인터넷 연결을 확인해 주세요.
 {why}")) }
 pub fn download_failed(why: &str) -> Problem { problem("업데이트 실패", format!("인터넷 연결을 확인해 주세요.\n{why}")) }
-pub fn setup_failed(why: &str) -> Problem { problem("설정 실패", why.into()) }
+pub fn setup_failed(why: &str) -> Problem { problem("광고 칸 비우기 실패", why.into()) }
 pub fn port_busy(who: &str) -> Problem { problem("443 포트 사용 중", format!("다른 프로그램이 443 포트를 쓰고 있습니다.\n{who}")) }
 pub fn failed(why: &str) -> Problem { problem("오류", why.into()) }
 pub fn uninstall_incomplete(left: &str) -> Problem { problem("제거 중 오류", format!("일부를 정리하지 못했습니다.\n{left}")) }
@@ -125,7 +127,7 @@ pub fn login_item_failed(why: &str) -> Problem { problem("로그인 항목 변�
 // ---------------------------------------------------------------- menu and status
 
 pub mod menu {
-    pub const SETUP: &str = "설정하기…";
+    pub const SETUP: &str = "광고 칸 비우기 시작…";
     pub const UPDATE: &str = "업데이트";
     pub const CHANGES: &str = "변경 내역 보기";
     pub const SKIP: &str = "이 버전 건너뛰기";
@@ -140,7 +142,7 @@ pub mod menu {
 
 pub mod status {
     pub const SERVING: &str = "광고 칸을 비우는 중";
-    pub const NOT_SET_UP: &str = "설정이 필요합니다";
+    pub const NOT_SET_UP: &str = "아직 광고 칸을 비우지 않습니다";
     pub const PORT_BUSY: &str = "443 포트를 다른 프로그램이 쓰고 있습니다";
     pub const NOT_ROUTED: &str = "광고 주소가 이 컴퓨터로 오지 않습니다";
     pub fn failed(why: &str) -> String { format!("오류: {why}") }
@@ -154,6 +156,7 @@ mod tests {
 
     #[test]
     fn notifications_are_short() {
+        for n in [unrouted(), moving_postponed()] { assert!(lines(&n.body) <= 2, "{}", n.body); }
         for n in [updated("1.0.0"), new_version("9.9.9"), up_to_date(), installed(), removed()] {
             assert!(n.title.chars().count() <= 10, "{}", n.title);
             assert!(lines(&n.body) <= 2, "{}", n.body);
@@ -162,9 +165,11 @@ mod tests {
 
     #[test]
     fn questions_and_problems_are_short() {
-        for a in [offer_update("9.9.9"), uninstall(), update_unverified(), update_not_possible(), move_to_applications(), moving()] {
+        for a in [offer_update("9.9.9"), uninstall(), update_unverified(), update_not_possible(), move_to_applications()] {
             assert!(a.title.chars().count() <= 16 && lines(&a.body) <= 2, "{}", a.title);
         }
+        // Windows shows its buttons as 확인/취소, so the move says which is which on a line of its own.
+        assert!(lines(&moving().body) <= 3);
         for p in [check_failed("x"), check_failed_offline("x"), download_failed("x"), setup_failed("x"), port_busy("x"), failed("x"),
                   uninstall_incomplete("x"), move_failed("x"), login_item_failed("x")] {
             assert!(p.title.chars().count() <= 12 && lines(&p.body) <= 2, "{}", p.title);
@@ -183,9 +188,9 @@ Connection refused");
         let a = moving();
         assert_eq!((a.title.as_str(), a.ok, a.cancel), ("이름 바꾸기", "계속", "나중에"));
         #[cfg(not(target_os = "macos"))]
-        assert_eq!(a.body, "KakaoAdHide가 TalkNap으로 이름을 바꿨습니다.\n새 이름으로 인증서와 hosts 설정을 다시 하고 옛 것을 지웁니다. 확인 창이 두세 번 뜹니다.");
+        assert_eq!(a.body, "KakaoAdHide가 TalkNap으로 이름을 바꿨습니다.\n인증서와 hosts 파일을 새 이름으로 옮깁니다(확인 창 두세 번).\n지금 하려면 확인, 나중에 하려면 취소를 누르세요.");
         #[cfg(target_os = "macos")]
-        assert_eq!(a.body, "KakaoAdHide가 TalkNap으로 이름을 바꿨습니다.\n새 이름으로 인증서와 hosts 설정을 다시 하고 옛 것을 지웁니다. 확인 창이 두세 번 뜨고, 알림 허용도 다시 묻습니다.");
+        assert_eq!(a.body, "KakaoAdHide가 TalkNap으로 이름을 바꿨습니다.\n인증서와 hosts 파일을 새 이름으로 바꾸고 옛 것을 지웁니다. 확인 창이 두세 번 뜨고, 알림 허용도 다시 묻습니다.");
         let n = moving_postponed();
         assert_eq!((n.title.as_str(), n.body.as_str()), ("이름 바꾸기를 미뤘습니다", "광고 칸은 그대로 비어 있습니다.\n다음에 켤 때 다시 묻습니다."));
     }
