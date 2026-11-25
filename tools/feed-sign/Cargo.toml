@@ -3,7 +3,7 @@ name = "feed-sign"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Signs KakaoAdHide's update feeds with Ed25519 and makes signing keys. Not part of the app."
+description = "Signs TalkNap's update feeds with Ed25519 and makes signing keys. Not part of the app."
 
 # its own workspace: not built with the app
 [workspace]

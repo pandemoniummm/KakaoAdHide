@@ -6,6 +6,8 @@
 //!   204 No Content, and never contacts the real ad servers.
 //! - One short-lived thread per connection: KakaoTalk makes a handful of requests an hour.
 
+use rustls::server::{ClientHello, ResolvesServerCert};
+use rustls::sign::CertifiedKey;
 use rustls::ServerConfig;
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
@@ -13,24 +15,60 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::time::Duration;
 
+/// The server's TLS settings. Its certificate comes from `CURRENT` (see `reload_cert`), so a running server can
+/// switch to a new certificate without opening the port again.
 pub fn tls_config(cert_pem: &Path, key_pem: &Path) -> Result<Arc<ServerConfig>, String> {
+    let certs = Arc::new(CertSlot(RwLock::new(load_cert(cert_pem, key_pem)?)));
+    let mut cfg = ServerConfig::builder_with_provider(provider())
+        .with_safe_default_protocol_versions()
+        .map_err(|e| e.to_string())?
+        .with_no_client_auth()
+        .with_cert_resolver(certs.clone());
+    cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+    if let Ok(mut g) = CURRENT.lock() { *g = Some(certs); }
+    Ok(Arc::new(cfg))
+}
+
+fn provider() -> Arc<rustls::crypto::CryptoProvider> { Arc::new(rustls::crypto::ring::default_provider()) }
+
+/// The certificate chain and key from PEM files (the key checked against the certificate).
+fn load_cert(cert_pem: &Path, key_pem: &Path) -> Result<Arc<CertifiedKey>, String> {
     let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(cert_pem)
         .map_err(|e| e.to_string())?
         .collect::<Result<_, _>>()
         .map_err(|e| e.to_string())?;
+    if certs.is_empty() { return Err("no certificate".into()); }
     let key = PrivateKeyDer::from_pem_file(key_pem).map_err(|e| e.to_string())?;
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let mut cfg = ServerConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .map_err(|e| e.to_string())?
-        .with_no_client_auth()
-        .with_single_cert(certs, key)
-        .map_err(|e| e.to_string())?;
-    cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
-    Ok(Arc::new(cfg))
+    CertifiedKey::from_der(certs, key, &provider()).map(Arc::new).map_err(|e| e.to_string())
+}
+
+/// The certificate the server presents, swapped by `reload_cert`.
+#[derive(Debug)]
+struct CertSlot(RwLock<Arc<CertifiedKey>>);
+
+impl ResolvesServerCert for CertSlot {
+    fn resolve(&self, _: ClientHello<'_>) -> Option<Arc<CertifiedKey>> { self.0.read().ok().map(|k| k.clone()) }
+}
+
+impl CertSlot {
+    fn set(&self, k: Arc<CertifiedKey>) -> Result<(), String> {
+        *self.0.write().map_err(|e| e.to_string())? = k;
+        Ok(())
+    }
+}
+
+/// The certificate of the last `tls_config` (the app makes one, for the server it starts).
+static CURRENT: Mutex<Option<Arc<CertSlot>>> = Mutex::new(None);
+
+/// Makes the server present the certificate in these files from the next connection on (setup swapped the
+/// certificate while the server was running). Nothing to do when no server config was made yet: it reads the
+/// files when it starts. An error leaves the certificate it had.
+pub fn reload_cert(cert_pem: &Path, key_pem: &Path) -> Result<(), String> {
+    let Some(slot) = CURRENT.lock().map_err(|e| e.to_string())?.clone() else { return Ok(()) };
+    slot.set(load_cert(cert_pem, key_pem)?)
 }
 
 /// Where to listen. Windows: the loopback addresses. macOS: a normal user may open port 443 only on all
@@ -130,8 +168,8 @@ fn serve(mut tcp: TcpStream, cfg: Arc<ServerConfig>) -> std::io::Result<()> {
     // keep-alive: a few requests per connection at most
     for _ in 0..32 {
         let Some(req) = read_request(&mut reader)? else { return Ok(()) };
-        if req.path == MENU_PATH { open_menu(&req.query); }
-        if req.path == STATE_PATH {
+        if is_menu_path(&req.path) { open_menu(&req.query); }
+        if is_state_path(&req.path) {
             log(&format!("{peer} {sni} {} {}", req.method, req.path));
             return stream_state(reader.get_mut(), &req);
         }
@@ -158,7 +196,10 @@ pub struct Request { pub method: String, pub path: String, pub query: String, pu
 // KakaoTalk isn't the active app. The web view can't tell (it never has the focus), so the app follows the
 // foreground window and the blank ad keeps one event stream open here (STATE_PATH?t=<menu token>), sent
 // "active" or "inactive" whenever it changes. Nothing is polled, and it's still only this computer.
-pub const STATE_PATH: &str = "/kakaoadhide/state";
+pub const STATE_PATH: &str = "/talknap/state";
+/// The path blank ads made by KakaoAdHide builds (before 2.7.0) ask; KakaoTalk may still show one of those.
+pub const OLD_STATE_PATH: &str = "/kakaoadhide/state";
+fn is_state_path(path: &str) -> bool { path == STATE_PATH || path == OLD_STATE_PATH }
 static STATE: Mutex<(bool, u64)> = Mutex::new((true, 0));   // (KakaoTalk active, change count)
 static STATE_CHANGED: Condvar = Condvar::new();
 static STREAMS: AtomicUsize = AtomicUsize::new(0);
@@ -215,7 +256,10 @@ Access-Control-Allow-Origin: {origin}\r\nConnection: close\r\n\r\n")?;
 // Opening the app's menu from the blank ad: its logo asks MENU_PATH?t=<token> on this server when clicked, and
 // the app shows its menu at the cursor. The token is random per run and only ever sent inside the blank ad, so
 // another page that happens to reach this server can't pop the menu up. No handler (macOS for now): no logo.
-pub const MENU_PATH: &str = "/kakaoadhide/menu";
+pub const MENU_PATH: &str = "/talknap/menu";
+/// The old path (see OLD_STATE_PATH).
+pub const OLD_MENU_PATH: &str = "/kakaoadhide/menu";
+fn is_menu_path(path: &str) -> bool { path == MENU_PATH || path == OLD_MENU_PATH }
 type MenuHandler = Box<dyn Fn() + Send>;
 static MENU: Mutex<Option<(String, MenuHandler)>> = Mutex::new(None);
 
@@ -326,6 +370,15 @@ mod tests {
     }
 
     #[test]
+    fn old_paths_still_served() {
+        assert_eq!((MENU_PATH, STATE_PATH), ("/talknap/menu", "/talknap/state"));
+        assert_eq!((OLD_MENU_PATH, OLD_STATE_PATH), ("/kakaoadhide/menu", "/kakaoadhide/state"));
+        assert!(is_menu_path(MENU_PATH) && is_menu_path(OLD_MENU_PATH) && !is_menu_path(STATE_PATH));
+        assert!(is_state_path(STATE_PATH) && is_state_path(OLD_STATE_PATH) && !is_state_path(MENU_PATH));
+        assert!(!is_menu_path("/kakaoadhide/state") && !is_state_path("/kakaoadhide/menu") && !is_menu_path("/menu"));
+    }
+
+    #[test]
     fn menu_needs_the_token() {
         let _turn = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -372,6 +425,7 @@ mod tests {
     // End to end: a TLS client that trusts only our certificate fetches the banner over loopback.
     #[test]
     fn serves_the_banner_over_tls() {
+        let _turn = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());   // tls_config sets the current certificate
         let dir = std::env::temp_dir().join(format!("kah-server-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let p = crate::certs::create(&dir).unwrap();
@@ -400,6 +454,44 @@ mod tests {
         assert!(text.starts_with("HTTP/1.1 200 OK"), "{text}");
         assert!(text.contains("\"status\":\"OK\""));
         crate::certs::remove(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A TLS handshake with a client that trusts only `der`; true when it succeeds.
+    fn handshake_trusting(port: u16, der: &Path) -> bool {
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(CertificateDer::from(std::fs::read(der).unwrap())).unwrap();
+        let ccfg = rustls::ClientConfig::builder_with_provider(provider())
+            .with_safe_default_protocol_versions().unwrap()
+            .with_root_certificates(roots).with_no_client_auth();
+        let name = rustls_pki_types::ServerName::try_from("serv.ds.kakao.com").unwrap();
+        let mut conn = rustls::ClientConnection::new(Arc::new(ccfg), name).unwrap();
+        let mut tcp = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        tcp.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        while conn.is_handshaking() {
+            if conn.complete_io(&mut tcp).is_err() { return false; }
+        }
+        true
+    }
+
+    // The running server switches to a new certificate (the move to the new name) without opening the port again.
+    #[test]
+    fn reloads_the_certificate_while_running() {
+        let _turn = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("kah-reload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let a = crate::certs::create(&dir.join("a")).unwrap();
+        let b = crate::certs::create(&dir.join("b")).unwrap();
+        let running = start(tls_config(&a.pem, &a.key).unwrap(), &[SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)]).unwrap();
+        let port = running.addresses[0].port();
+        assert!(handshake_trusting(port, &a.der));
+        assert!(!handshake_trusting(port, &b.der));
+        // a key that doesn't belong to the certificate is refused, and the old certificate stays
+        assert!(reload_cert(&b.pem, &a.key).is_err());
+        assert!(handshake_trusting(port, &a.der));
+        reload_cert(&b.pem, &b.key).unwrap();
+        assert!(handshake_trusting(port, &b.der));
+        assert!(!handshake_trusting(port, &a.der));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

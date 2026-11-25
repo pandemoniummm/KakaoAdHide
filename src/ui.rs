@@ -3,7 +3,7 @@
 use crate::feed::Feed;
 use crate::notices::{self, Ask, Notice, Problem};
 use crate::setup::{self, Status};
-use crate::updater::{self, Check};
+use crate::updater::{self, Check, CheckError};
 use crate::{platform, VERSION};
 use std::time::Duration;
 use tao::event::{Event, StartCause};
@@ -43,7 +43,7 @@ fn confirm_label(title: &str, text: &str, ok: &str, cancel: &str) -> bool {
 
 enum UserEvent {
     Menu(MenuId),
-    UpdateChecked(Result<Check, String>, bool),
+    UpdateChecked(Result<Check, CheckError>, bool),
     TimerCheck,
     RouteCheck,
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -100,7 +100,7 @@ impl App {
 
     fn build_menu(&mut self) -> Menu {
         let menu = Menu::new();
-        let header = MenuItem::new(format!("낮잠 {VERSION}"), false, None);
+        let header = MenuItem::new(format!("TalkNap {VERSION}"), false, None);
         let status = MenuItem::new(self.status_text(), false, None);
         use notices::menu as m;
         let setup = MenuItem::new(m::SETUP, self.status != Status::Serving, None);
@@ -142,12 +142,13 @@ impl App {
             let _ = t.set_icon_templated(Some(i));
             #[cfg(not(target_os = "macos"))]
             let _ = t.set_icon(Some(i));
-            let _ = t.set_tooltip(Some(format!("낮잠 {VERSION} - {}", self.status_text())));
+            let _ = t.set_tooltip(Some(format!("TalkNap {VERSION} - {}", self.status_text())));
         }
     }
 
     /// Setup (with consent the first time), then the server.
     fn start(&mut self, ask: bool) {
+        setup::open_log();
         let m = setup::missing();
         if m.any() {
             let agreed = platform::get("Consented").is_some();
@@ -156,14 +157,51 @@ impl App {
                 self.status = Status::NotSetUp;
                 return;
             }
+            // An install from before the rename: asked first, and put off while the old names keep the slot empty.
+            let moving = agreed && setup::is_moving(&m);
+            if moving && setup::can_serve_now() {
+                // The old certificate and hosts block still work: the server runs before anything is asked, so
+                // the slot stays empty while the questions wait (e.g. started at sign-in with nobody there).
+                // complete() switches the running server to the new certificate before removing the old ones.
+                self.status = setup::serve();
+                self.port_busy();
+                if !self::ask(&notices::moving()) {
+                    crate::server::note("move to the new name put off (asked again at the next start)");
+                    return;
+                }
+                if let Err(e) = setup::complete(&m) {
+                    crate::server::note(&format!("move to the new name not finished: {e}"));
+                    show(&notices::moving_postponed());
+                }
+                if matches!(self.status, Status::Serving | Status::NotRouted) {
+                    self.status = if setup::routed() { Status::Serving } else { Status::NotRouted };
+                }
+                return;
+            }
+            if moving && !self::ask(&notices::moving()) {
+                crate::server::note("move to the new name put off (asked again at the next start)");
+                self.status = Status::NotSetUp;
+                return;
+            }
             platform::set("Consented", Some("1"));
             if let Err(e) = setup::complete(&m) {
+                crate::server::note(&format!("setup not finished: {e}"));
+                if moving && setup::can_serve_now() {
+                    self.status = setup::serve();
+                    show(&notices::moving_postponed());
+                    self.port_busy();
+                    return;
+                }
                 self.status = Status::NotSetUp;
                 error(&notices::setup_failed(&e));
                 return;
             }
         }
         self.status = setup::serve();
+        self.port_busy();
+    }
+
+    fn port_busy(&self) {
         if let Status::PortBusy(e) = &self.status {
             error(&notices::port_busy(e));
         }
@@ -214,7 +252,7 @@ impl App {
         let _ = target;
         let menu = self.build_menu();
         let i = icon(false, self.status != Status::Serving);
-        let builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(format!("낮잠 {VERSION}"));
+        let builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(format!("TalkNap {VERSION}"));
         #[cfg(target_os = "macos")]
         let builder = builder.with_icon_templated(i);
         #[cfg(not(target_os = "macos"))]
@@ -227,7 +265,7 @@ impl App {
         #[cfg(any(windows, target_os = "macos"))]
         {
             // the menu opened from the blank ad's button
-            self.menu_window = tao::window::WindowBuilder::new().with_visible(false).with_title("낮잠").build(target).ok();
+            self.menu_window = tao::window::WindowBuilder::new().with_visible(false).with_title("TalkNap").build(target).ok();
             if self.menu_window.is_some() {
                 let p = self.proxy.clone();
                 crate::server::set_menu_handler(menu_token(), move || { let _ = p.send_event(UserEvent::ShowMenu); });
@@ -303,7 +341,7 @@ impl App {
         self.refresh();
     }
 
-    fn update_checked(&mut self, result: Result<Check, String>, interactive: bool) -> bool {
+    fn update_checked(&mut self, result: Result<Check, CheckError>, interactive: bool) -> bool {
         match result {
             Ok(Check::Available(f)) => {
                 let skipped = updater::skipped().as_deref() == Some(f.version.as_str());
@@ -333,7 +371,7 @@ impl App {
                 self.refresh();
                 if interactive { show(&notices::up_to_date()); }
             }
-            Err(e) => if interactive { error(&notices::check_failed(&e)) },
+            Err(e) => if interactive { error(&e.problem()) },
         }
         false
     }

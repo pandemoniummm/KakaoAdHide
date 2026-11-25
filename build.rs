@@ -4,11 +4,11 @@ fn main() {
     let version = std::fs::read_to_string("VERSION").expect("VERSION").trim().to_string();
     assert!(version.split('.').count() == 3 && version.split('.').all(|p| p.parse::<u32>().is_ok()),
             "VERSION must look like 1.2.3");
-    let version = std::env::var("KAKAOADHIDE_VERSION").unwrap_or(version);   // the release workflow may override
-    println!("cargo:rustc-env=KAKAOADHIDE_VERSION={version}");
+    let version = std::env::var("TALKNAP_VERSION").unwrap_or(version);   // the release workflow may override
+    println!("cargo:rustc-env=TALKNAP_VERSION={version}");
     println!("cargo:rerun-if-changed=VERSION");
     println!("cargo:rerun-if-changed=packaging/windows/app.ico");
-    println!("cargo:rerun-if-env-changed=KAKAOADHIDE_VERSION");
+    println!("cargo:rerun-if-env-changed=TALKNAP_VERSION");
 
     #[cfg(windows)]
     {
@@ -17,8 +17,8 @@ fn main() {
         let packed = (v[0] << 48) | (v[1] << 32) | (v[2] << 16);
         res.set_version_info(winresource::VersionInfo::FILEVERSION, packed);
         res.set_version_info(winresource::VersionInfo::PRODUCTVERSION, packed);
-        res.set("ProductName", "낮잠 (TalkNap)");
-        res.set("FileDescription", "낮잠");
+        res.set("ProductName", "TalkNap");
+        res.set("FileDescription", "TalkNap");
         res.set("ProductVersion", &version);
         res.set("FileVersion", &version);
         res.set("LegalCopyright", "Copyright (c) 2026 pandemoniummm, MIT License");

@@ -7,15 +7,15 @@
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleExecutable</key>
-	<string>KakaoAdHide</string>
+	<string>TalkNap</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.pandemoniummm.KakaoAdHide</string>
+	<string>io.github.pandemoniummm.TalkNap</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>낮잠</string>
+	<string>TalkNap</string>
 	<key>CFBundleDisplayName</key>
-	<string>낮잠</string>
+	<string>TalkNap</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

@@ -1,5 +1,9 @@
-//! macOS: KakaoAdHide.app in /Applications (or ~/Applications), a menu bar item, a LaunchAgent to start at login,
-//! settings in ~/Library/Application Support/KakaoAdHide/settings.json.
+//! macOS: TalkNap.app in /Applications (or ~/Applications), a menu bar item, a LaunchAgent to start at login,
+//! settings in ~/Library/Application Support/TalkNap/settings.json.
+//!
+//! Up to 2.6.0 the app was KakaoAdHide.app (bundle id io.github.pandemoniummm.KakaoAdHide, data in
+//! ~/Library/Application Support/KakaoAdHide). 2.6.0 updates by swapping it for TalkNap.app; `migrate_old` then
+//! moves the rest over at each start. The OLD_* names are kept only to find and remove what the old app left.
 
 use crate::certs::Paths;
 use crate::feed::{self, Feed, VerifyError};
@@ -9,22 +13,19 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub const NAME: &str = "macos";
-pub const BUNDLE_ID: &str = "io.github.pandemoniummm.KakaoAdHide";
-pub const APP_NAME: &str = "KakaoAdHide.app";
-pub const UPDATE_ASSET: &str = "KakaoAdHide-macos.dmg";
+pub const BUNDLE_ID: &str = "io.github.pandemoniummm.TalkNap";
+pub const APP_NAME: &str = "TalkNap.app";
+pub const UPDATE_ASSET: &str = "TalkNap.dmg";
 
-/// SHA-1 of the self-signed "KakaoAdHide Code Signing" certificate (tools/new-macos-signing-cert.sh).
-pub const SIGNING_CERT_SHA1: &str = "DB044D3EF322C3D1E1961BB3D91063A3E07CF06A";
+/// SHA-1 of the self-signed "TalkNap Code Signing" certificate (tools/new-macos-signing-cert.sh --name TalkNap).
+/// 2.6.0 accepts TalkNap.app only with this certificate: changing it cuts installed apps off from updates.
+pub const SIGNING_CERT_SHA1: &str = "82E7C479987E47FEAA2A457F64A8F09205F0CA77";
 
-/// What 2.5.x and earlier require of KakaoAdHide.app; requirement() must keep building exactly this.
-#[cfg(test)]
-fn signing_requirement() -> String { requirement(BUNDLE_ID, SIGNING_CERT_SHA1) }
-
-/// The renamed app that updates after 2.6.0 bring: its own bundle name, bundle identifier and
-/// "TalkNap Code Signing" certificate (tools/new-macos-signing-cert.sh --name TalkNap).
-pub const TALKNAP_APP_NAME: &str = "TalkNap.app";
-pub const TALKNAP_BUNDLE_ID: &str = "io.github.pandemoniummm.TalkNap";
-pub const SIGNING_CERT_SHA1_TALKNAP: &str = "82E7C479987E47FEAA2A457F64A8F09205F0CA77";
+/// The app up to 2.6.0: only used to find and remove it, its data and its login item.
+pub const OLD_BUNDLE_ID: &str = "io.github.pandemoniummm.KakaoAdHide";
+pub const OLD_APP_NAME: &str = "KakaoAdHide.app";
+/// The old name as it appears in crash report file names (the old executable was Contents/MacOS/KakaoAdHide).
+const OLD_NAME: &str = "KakaoAdHide";
 
 /// What a downloaded update must be signed with, checked on top of the feed signature. Moving to a Developer ID
 /// later: first ship a version that also accepts it (... or anchor apple generic and certificate leaf[subject.OU]
@@ -33,14 +34,12 @@ fn requirement(id: &str, sha1: &str) -> String {
     format!("identifier \"{id}\" and certificate leaf = H\"{sha1}\"")
 }
 
-/// Bundle identifier and certificate an update's app must have, by the app's name in the disk image.
-fn pair_for(app_name: &str) -> (&'static str, &'static str) {
-    if app_name == TALKNAP_APP_NAME { (TALKNAP_BUNDLE_ID, SIGNING_CERT_SHA1_TALKNAP) } else { (BUNDLE_ID, SIGNING_CERT_SHA1) }
-}
-
 fn home() -> PathBuf { PathBuf::from(std::env::var_os("HOME").unwrap_or_default()) }
 
-pub fn data_dir() -> PathBuf { home().join("Library/Application Support/KakaoAdHide") }
+pub fn data_dir() -> PathBuf { home().join("Library/Application Support/TalkNap") }
+
+/// Where KakaoAdHide (2.6.0 and earlier) kept its settings and certificate.
+fn old_data_dir() -> PathBuf { home().join("Library/Application Support").join(OLD_NAME) }
 
 // ---------------------------------------------------------------- settings
 
@@ -89,6 +88,63 @@ pub fn untrust_certificate(p: &Paths) {
     }
 }
 
+/// Deletes a certificate `trust_certificate` failed on from the login keychain. `add-trusted-cert` imports the
+/// certificate before macOS asks for the password, so a declined (or failed) ask leaves it there without trust
+/// settings; once its files are gone nothing else would find it again. Deleted by its SHA-1 only, without
+/// `remove-trusted-cert` or `-t`: those change the user trust settings, which can ask for the password a second
+/// time right after the user said no, and there are none to remove. Deleting the item from the (unlocked) login
+/// keychain doesn't ask.
+pub fn forget_declined_certificate(p: &Paths) {
+    if let Ok(der) = std::fs::read(&p.der) {
+        let _ = Command::new("/usr/bin/security")
+            .args(["delete-certificate", "-Z", &setup::sha1_hex(&der)]).arg(login_keychain())
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+    }
+}
+
+/// SHA-1 hashes of the login keychain's certificates whose name contains `cn` (`security find-certificate -Z`).
+fn certificate_hashes(cn: &str) -> Vec<String> {
+    let Ok(out) = Command::new("/usr/bin/security")
+        .args(["find-certificate", "-a", "-c", cn, "-Z"]).arg(login_keychain())
+        .stderr(std::process::Stdio::null()).output() else { return Vec::new() };
+    if !out.status.success() { return Vec::new(); }
+    sha1_hashes(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The `SHA-1 hash:` lines of a `security find-certificate -Z` listing.
+fn sha1_hashes(listing: &str) -> Vec<String> {
+    listing.lines()
+        .filter_map(|l| l.trim().strip_prefix("SHA-1 hash:")).map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect()
+}
+
+fn old_certificate_hashes() -> Vec<String> { certificate_hashes(crate::certs::OLD_COMMON_NAME) }
+
+/// Deletes the certificates with our name that are still in the login keychain after the ones in `certs/` were
+/// removed: left when the user declined trusting one before `forget_declined_certificate` existed (2.7.0 test
+/// builds), or whose files were lost. The name is ours alone. Without `-t`, so it doesn't ask for the password: such a certificate has no trust
+/// settings, and one that did (its files lost) would keep only settings for a certificate that is gone.
+pub fn remove_leftover_certificates() {
+    for hash in certificate_hashes(crate::certs::COMMON_NAME) {
+        let _ = Command::new("/usr/bin/security").args(["delete-certificate", "-Z", &hash]).arg(login_keychain())
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+    }
+}
+
+/// True when the login keychain holds a certificate whose name is the old CN.
+pub fn old_certificates_present() -> bool { !old_certificate_hashes().is_empty() }
+
+/// Deletes every old-CN certificate from the login keychain (-t also drops its user trust settings).
+/// Whether it worked is decided by looking again, not by the exit codes. macOS may ask for the password for each
+/// one: the first that is still there afterwards (declined) ends it, so the question doesn't come back; the next
+/// start asks again.
+pub fn remove_old_certificates() -> Result<(), String> {
+    for hash in old_certificate_hashes() {
+        let _ = Command::new("/usr/bin/security").args(["delete-certificate", "-Z", &hash, "-t"]).arg(login_keychain()).status();
+        if old_certificate_hashes().contains(&hash) { break; }
+    }
+    if old_certificates_present() { Err("옛 인증서를 지우지 못했습니다.".into()) } else { Ok(()) }
+}
+
 // ---------------------------------------------------------------- hosts (administrator)
 
 /// Writes the hosts file with or without our entries. macOS asks for an administrator password; only a fixed
@@ -99,8 +155,8 @@ pub fn set_hosts(add: bool) -> Result<(), String> {
     let tmp = data_dir().join("hosts.new");
     std::fs::create_dir_all(data_dir()).map_err(|e| e.to_string())?;
     std::fs::write(&tmp, new).map_err(|e| e.to_string())?;
-    let prompt = if add { "낮잠(TalkNap)이 카카오톡 광고 주소 두 개를 이 Mac으로 돌리려고 합니다." }
-                 else { "낮잠(TalkNap)이 hosts 파일에 넣었던 두 줄을 지우려고 합니다." };
+    let prompt = if add { "TalkNap이 카카오톡 광고 주소 두 개를 이 Mac으로 돌리려고 합니다." }
+                 else { "TalkNap이 hosts 파일에 넣었던 두 줄을 지우려고 합니다." };
     let script = format!(
         // The resolver didn't always pick up the new file after a plain HUP: flush, then restart it (launchd
         // starts it again at once). The flush steps run even if an earlier one fails.
@@ -113,7 +169,7 @@ pub fn set_hosts(add: bool) -> Result<(), String> {
 
 // ---------------------------------------------------------------- app location, login item, single instance
 
-/// …/KakaoAdHide.app when running from a bundle.
+/// …/TalkNap.app when running from a bundle.
 pub fn bundle_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
     let app = exe.parent()?.parent()?.parent()?.to_path_buf();
@@ -144,45 +200,225 @@ pub fn offer_move_to_applications() -> bool {
 }
 
 fn is_writable(dir: &Path) -> bool {
-    let probe = dir.join(format!(".kakaoadhide-{}", std::process::id()));
+    let probe = dir.join(format!(".talknap-{}", std::process::id()));
     let ok = std::fs::write(&probe, b"").is_ok();
     let _ = std::fs::remove_file(probe);
     ok
 }
 
-fn launch_agent() -> PathBuf { home().join(format!("Library/LaunchAgents/{BUNDLE_ID}.plist")) }
+/// ~/Library/LaunchAgents/<label>.plist: ours is labelled BUNDLE_ID, KakaoAdHide's was OLD_BUNDLE_ID.
+fn launch_agent_for(label: &str) -> PathBuf { home().join(format!("Library/LaunchAgents/{label}.plist")) }
+
+fn launch_agent() -> PathBuf { launch_agent_for(BUNDLE_ID) }
 
 pub fn login_item_enabled() -> bool { launch_agent().exists() }
+
+/// The executable inside the bundle (CFBundleExecutable).
+const EXECUTABLE: &str = "TalkNap";
+
+/// What the LaunchAgent runs: the app's own executable, not `/usr/bin/open -a <app>`. macOS names a launch item
+/// after its executable ("Allow in the Background" in System Settings > General > Login Items, and the "Background
+/// Items Added" notification), so `open` showed up as an unknown "open" app. AssociatedBundleIdentifiers can't fix
+/// that: macOS ignores it for an executable without a Team ID (self-signed). With the executable it shows
+/// "TalkNap" (with a plain executable icon, for the same reason).
+fn login_executable(app: &Path) -> PathBuf { app.join("Contents/MacOS").join(EXECUTABLE) }
+
+/// The LaunchAgent that starts `app` at login. The app is then the launchd job itself, and launchd kills the rest
+/// of the job's process group when it exits: AbandonProcessGroup keeps the update's swap script (REPLACE_SCRIPT,
+/// started by the app just before it quits) running.
+fn login_agent_plist(app: &Path) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>{BUNDLE_ID}</string>
+<key>ProgramArguments</key><array><string>{}</string><string>--run</string></array>
+<key>RunAtLoad</key><true/>
+<key>AbandonProcessGroup</key><true/>
+</dict></plist>
+"#,
+        xml_escape(&login_executable(app).display().to_string())
+    )
+}
+
+/// Whether a LaunchAgent plist is the one login_agent_plist writes for `app` (a 2.7.0 test build's
+/// `open -a` agent isn't: it is rewritten).
+fn plist_points_to(plist: &str, app: &Path) -> bool { plist == login_agent_plist(app) }
 
 pub fn set_login_item(on: bool) -> Result<(), String> {
     let path = launch_agent();
     if !on { let _ = std::fs::remove_file(&path); return Ok(()); }
     let app = bundle_path().ok_or("앱 위치를 알 수 없습니다.")?;
-    let plist = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>{BUNDLE_ID}</string>
-<key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-g</string><string>-a</string><string>{}</string><string>--args</string><string>--run</string></array>
-<key>RunAtLoad</key><true/>
-</dict></plist>
-"#,
-        xml_escape(&app.display().to_string())
-    );
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    std::fs::write(&path, plist).map_err(|e| e.to_string())
+    std::fs::write(&path, login_agent_plist(&app)).map_err(|e| e.to_string())
 }
 
 fn xml_escape(s: &str) -> String { s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;") }
 
-/// Held for the life of the process: a second instance finds it locked and quits.
-pub fn single_instance() -> Option<std::fs::File> {
+// ---------------------------------------------------------------- moving over from KakaoAdHide (2.6.0 and earlier)
+
+/// True only for KakaoAdHide's bundle identifier: nothing else is ever removed as the old app.
+fn is_old_app(bundle_id: &str) -> bool { bundle_id == OLD_BUNDLE_ID }
+
+/// The app's CFBundleIdentifier ("" when it can't be read).
+fn bundle_id_of(app: &Path) -> String {
+    Command::new("/usr/bin/plutil").args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"]).arg(app.join("Contents/Info.plist"))
+        .stderr(std::process::Stdio::null()).output().ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
+}
+
+/// Crash reports of the old app: ~/Library/Logs/DiagnosticReports/KakaoAdHide-….ips (or KakaoAdHide_…).
+fn is_old_crash_report(name: &str) -> bool {
+    name.strip_prefix(OLD_NAME).is_some_and(|rest| rest.starts_with('-') || rest.starts_with('_'))
+}
+
+/// ~/Library/Application Support/CrashReporter/KakaoAdHide_<uuid>.plist
+fn is_old_crash_reporter_plist(name: &str) -> bool {
+    name.strip_prefix(OLD_NAME).is_some_and(|rest| rest.starts_with('_') && rest.ends_with(".plist"))
+}
+
+/// Moves `from` (a file or folder) to `to`, which must not exist: a rename (same disk), else a copy that is
+/// removed again if it fails. True when `from` is now at `to`; `from` is left as it was otherwise.
+fn move_item(from: &Path, to: &Path) -> bool {
+    if std::fs::rename(from, to).is_ok() { return true; }
+    let copied = Command::new("/usr/bin/ditto").arg(from).arg(to)
+        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+        .status().map(|s| s.success()).unwrap_or(false);
+    if !copied {
+        let _ = if to.is_dir() { std::fs::remove_dir_all(to) } else { std::fs::remove_file(to) };
+        return false;
+    }
+    let _ = if from.is_dir() { std::fs::remove_dir_all(from) } else { std::fs::remove_file(from) };
+    true
+}
+
+/// Moves settings.json and certs/ from the old data folder into ours, then removes the old folder (its server.log,
+/// lock and hosts.new are dropped). What we already have wins: a settings.json or certs/ of ours is kept and the
+/// old one dropped. If a move fails the old folder is kept, with the old certificate in it, and the move is tried
+/// again at the next start.
+fn move_old_data() {
+    let (old, new) = (old_data_dir(), data_dir());
+    if !old.is_absolute() || !old.is_dir() || old == new || old_copy_running() { return; }
+    if std::fs::create_dir_all(&new).is_err() { return; }
+    for name in ["certs", "settings.json"] {
+        let (from, to) = (old.join(name), new.join(name));
+        if std::fs::symlink_metadata(&from).is_err() || std::fs::symlink_metadata(&to).is_ok() { continue; }
+        if !move_item(&from, &to) { return; }
+    }
+    let _ = std::fs::remove_dir_all(&old);
+}
+
+/// Stops and removes KakaoAdHide.app in /Applications and ~/Applications, if its bundle identifier is the old one.
+fn remove_old_apps(running: &Path) {
+    for folder in [PathBuf::from("/Applications"), home().join("Applications")] {
+        let app = folder.join(OLD_APP_NAME);
+        if !app.is_absolute() || app.as_path() == running || !app.is_dir() || !is_old_app(&bundle_id_of(&app)) { continue; }
+        let pattern = format!("^{}/Contents/MacOS/", regex_escape(&app.display().to_string()));
+        let pkill = |signal: &str| Command::new("/usr/bin/pkill").args([signal, "-f", pattern.as_str()])
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+            .status().map(|s| s.success()).unwrap_or(false);
+        // wait until it has exited (its lock released, port 443 free) before moving its data and starting our
+        // server: up to 5 s after SIGTERM, then SIGKILL and up to 2 s more
+        if pkill("-TERM") && !wait_old_exit(50) && pkill("-KILL") { wait_old_exit(20); }
+        let _ = std::fs::remove_dir_all(&app);
+    }
+}
+
+/// Waits (`tries` × 100 ms at most) until no KakaoAdHide holds its lock. True once none does.
+fn wait_old_exit(tries: u32) -> bool {
+    for _ in 0..tries {
+        if !old_copy_running() { return true; }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    !old_copy_running()
+}
+
+/// `s` as a literal in an extended regular expression (pkill -f).
+fn regex_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if r"\.^$|?*+()[]{}".contains(c) { out.push('\\'); }
+        out.push(c);
+    }
+    out
+}
+
+/// The login item (issue #15): KakaoAdHide's LaunchAgent opens the old app, which is gone after the update, so
+/// it is replaced by ours. Ours is rewritten when it isn't what login_agent_plist writes for this app (the app was
+/// moved, or an earlier build wrote it differently). With neither, the user turned it off: left off.
+/// Login Items the user added in System Settings are not touched.
+fn move_login_item(app: &Path) {
+    let old = launch_agent_for(OLD_BUNDLE_ID);
+    if old.exists() {
+        // ours first: if it can't be written, the old one stays (it still says the user wants it on)
+        if set_login_item(true).is_ok() { let _ = std::fs::remove_file(&old); }
+    } else if let Ok(plist) = std::fs::read_to_string(launch_agent()) {
+        if !plist_points_to(&plist, app) { let _ = set_login_item(true); }
+    }
+}
+
+/// What macOS kept for the old bundle identifier and name: preferences, saved window state, caches, crash reports.
+fn remove_old_traces() {
+    let lib = home().join("Library");
+    if !lib.is_absolute() { return; }
+    let _ = std::fs::remove_file(lib.join(format!("Preferences/{OLD_BUNDLE_ID}.plist")));
+    let _ = std::fs::remove_dir_all(lib.join(format!("Saved Application State/{OLD_BUNDLE_ID}.savedState")));
+    let _ = std::fs::remove_dir_all(lib.join(format!("Caches/{OLD_BUNDLE_ID}")));
+    let remove_matching = |dir: PathBuf, matches: fn(&str) -> bool| {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            if e.file_name().to_str().is_some_and(matches) { let _ = std::fs::remove_file(e.path()); }
+        }
+    };
+    remove_matching(lib.join("Logs/DiagnosticReports"), is_old_crash_report);
+    remove_matching(lib.join("Application Support/CrashReporter"), is_old_crash_reporter_plist);
+}
+
+/// Moves over from KakaoAdHide, at every start (each step first checks, cheaply, whether there is anything to do;
+/// failures are silent and tried again next time): (1) the old app, (2) its data, (3) the login item, (4) what
+/// macOS kept under the old names. Only for the app installed in Applications: a copy run from the disk image or a
+/// bare binary (cargo run) changes nothing.
+pub fn migrate_old() {
+    let Some(app) = bundle_path().filter(|a| in_applications(a)) else { return };
+    remove_old_apps(&app);
+    move_old_data();
+    move_login_item(&app);
+    remove_old_traces();
+}
+
+/// Takes an exclusive lock on `f` without waiting: false when another process holds it.
+fn lock(f: &std::fs::File) -> bool {
     use std::os::fd::AsRawFd;
-    let _ = std::fs::create_dir_all(data_dir());
-    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(data_dir().join("lock")).ok()?;
     extern "C" { fn flock(fd: i32, op: i32) -> i32; }
     const LOCK_EX: i32 = 2; const LOCK_NB: i32 = 4;
-    (unsafe { flock(f.as_raw_fd(), LOCK_EX | LOCK_NB) } == 0).then_some(f)
+    unsafe { flock(f.as_raw_fd(), LOCK_EX | LOCK_NB) == 0 }
+}
+
+/// KakaoAdHide's lock file (2.6.0 and earlier take the same kind of lock on it while they run), opened if it
+/// exists. None when there is none or it can't be opened: then no old copy is counted as running.
+fn open_old_lock() -> Option<std::fs::File> {
+    let path = old_data_dir().join("lock");
+    if !path.is_absolute() { return None; }
+    std::fs::OpenOptions::new().write(true).open(path).ok()
+}
+
+/// A KakaoAdHide is running (holds its lock).
+fn old_copy_running() -> bool { open_old_lock().is_some_and(|f| !lock(&f)) }
+
+/// Held for the life of the process: a second instance finds it locked and quits. A running KakaoAdHide counts as
+/// a first instance too (it serves the blank ad on port 443 with its own certificate): then this one quits, as a
+/// second KakaoAdHide did. That only happens when this copy isn't the installed one (run from the disk image), or
+/// when an old copy runs from somewhere else: migrate_old has stopped the installed old app and waited until it
+/// exited (remove_old_apps: SIGTERM, up to 5 s, then SIGKILL, up to 2 s). The old lock, when there is one, is held
+/// as well, so a KakaoAdHide started later quits.
+pub fn single_instance() -> Option<std::fs::File> {
+    if let Some(old) = open_old_lock() {
+        if !lock(&old) { return None; }
+        std::mem::forget(old);   // kept locked for the life of the process
+    }
+    let _ = std::fs::create_dir_all(data_dir());
+    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(data_dir().join("lock")).ok()?;
+    lock(&f).then_some(f)
 }
 
 pub fn open_url(url: &str) { let _ = Command::new("/usr/bin/open").arg(url).spawn(); }
@@ -199,7 +435,10 @@ pub fn first_run() {
 pub fn uninstall(_quiet: bool) -> Result<(), String> {
     let r = setup::undo();
     let _ = set_login_item(false);
-    let _ = std::fs::remove_dir_all(data_dir());
+    let _ = std::fs::remove_file(launch_agent_for(OLD_BUNDLE_ID));
+    for dir in [data_dir(), old_data_dir()] {
+        if dir.is_absolute() { let _ = std::fs::remove_dir_all(dir); }
+    }
     if let Some(app) = bundle_path() {
         let _ = Command::new("/usr/bin/osascript")
             .arg("-e").arg("on run argv\n tell application \"Finder\" to delete (POSIX file (item 1 of argv) as alias)\nend run")
@@ -214,35 +453,30 @@ pub fn can_update_in_place() -> bool {
     bundle_path().map(|a| in_applications(&a) && is_writable(a.parent().unwrap())).unwrap_or(false)
 }
 
-/// Mounts the disk image read-only and invisibly, copies the app out (TalkNap.app if the image has it, else
-/// KakaoAdHide.app) and checks it: the bundle identifier and certificate that go with that name (pair_for),
-/// version equal to the feed's, and a valid code signature. Detaches before returning. The bool is true for
-/// TalkNap.app (the update renames the app).
-pub fn extract_verified_app(dmg: &Path, work: &Path, version: &str) -> Result<(PathBuf, bool), VerifyError> {
+/// Mounts the disk image read-only and invisibly, copies TalkNap.app out and checks it: our bundle identifier and
+/// certificate, version equal to the feed's, and a valid code signature. Detaches before returning.
+pub fn extract_verified_app(dmg: &Path, work: &Path, version: &str) -> Result<PathBuf, VerifyError> {
     let bad = |why: &str| VerifyError::BadPackage(why.to_string());
     let mount = work.join("mount");
     std::fs::create_dir_all(&mount).map_err(|e| bad(&e.to_string()))?;
     if !attach_image(dmg, &mount) { return Err(bad("디스크 이미지를 열지 못했습니다")); }
     let result = (|| {
-        let is_new = std::fs::symlink_metadata(mount.join(TALKNAP_APP_NAME)).is_ok();
-        let name = if is_new { TALKNAP_APP_NAME } else { APP_NAME };
-        let (id, sha1) = pair_for(name);
-        let source = mount.join(name);
+        let source = mount.join(APP_NAME);
         let meta = std::fs::symlink_metadata(&source).map_err(|_| bad("앱이 없습니다"))?;
         if !meta.is_dir() { return Err(bad("앱이 없습니다")); }
-        let copy = work.join(name);
+        let copy = work.join(APP_NAME);
         let ok = Command::new("/usr/bin/ditto").arg("--noqtn").arg(&source).arg(&copy).status().map(|s| s.success()).unwrap_or(false);
         if !ok { return Err(bad("앱을 복사하지 못했습니다")); }
         let plist = copy.join("Contents/Info.plist");
         let read = |key: &str| Command::new("/usr/bin/plutil").args(["-extract", key, "raw", "-o", "-"]).arg(&plist)
             .output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
-        if read("CFBundleIdentifier") != id { return Err(bad("번들 ID가 다릅니다")); }
+        if read("CFBundleIdentifier") != BUNDLE_ID { return Err(bad("번들 ID가 다릅니다")); }
         if read("CFBundleShortVersionString") != version { return Err(bad("버전이 다릅니다")); }
         let signed = Command::new("/usr/bin/codesign")
-            .args(["--verify", "--deep", "--strict"]).arg(format!("-R={}", requirement(id, sha1))).arg(&copy)
+            .args(["--verify", "--deep", "--strict"]).arg(format!("-R={}", requirement(BUNDLE_ID, SIGNING_CERT_SHA1))).arg(&copy)
             .stderr(std::process::Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
         if !signed { return Err(bad("코드 서명이 맞지 않습니다")); }
-        Ok((copy, is_new))
+        Ok(copy)
     })();
     detach_image(&mount);
     result
@@ -268,12 +502,9 @@ fn detach_image(mount: &Path) {
 
 /// Swaps the app once the running copy (pid) has exited, putting the old one back if the swap fails, then
 /// stops any other copy still running from the old files and opens whichever is in place. Arguments: pid, new app,
-/// where it goes, work folder (removed at the end), and, when the update renames the app, the installed app
-/// (old): it is removed once the new one is in place, and opened instead if the swap fails. A TalkNap.app left
-/// from an earlier try is replaced; one app is left in the folder either way.
+/// where it goes, work folder (removed at the end).
 const REPLACE_SCRIPT: &str = r#"#!/bin/bash
-pid="$1"; src="$2"; dst="$3"; work="$4"; old="${5:-}"
-[ "$old" = "$dst" ] && old=""
+pid="$1"; src="$2"; dst="$3"; work="$4"
 for _ in $(seq 1 300); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
 sleep 0.3
 dir="$(dirname "$dst")"; name="$(basename "$dst")"
@@ -286,23 +517,18 @@ if /usr/bin/ditto "$src" "$staged"; then
   fi
 fi
 /bin/rm -rf "$staged"
-if [ "$ok" = 1 ] && [ -n "$old" ]; then
-  /usr/bin/pkill -f "^$old/Contents/MacOS/" 2>/dev/null && sleep 1
-  /bin/rm -rf "$old"
-fi
 # a copy still running from the old files (update started from the command line) would keep the old version
 /usr/bin/pkill -f "^$dst/Contents/MacOS/" 2>/dev/null && sleep 1
-if [ "$ok" != 1 ] && [ -n "$old" ]; then /usr/bin/open "$old"; else /usr/bin/open "$dst"; fi
+/usr/bin/open "$dst"
 /bin/rm -rf "$work"
 "#;
 
 /// Downloads, verifies and hands over to a script that swaps the app once this process has exited (restoring
-/// the old one if the swap fails) and opens it. An update holding TalkNap.app goes in next to this app as
-/// TalkNap.app, and the script then removes this one. The caller quits on Ok.
+/// the old one if the swap fails) and opens it. The caller quits on Ok.
 pub fn install_update(feed: &Feed) -> Result<(), crate::updater::InstallError> {
     use crate::updater::InstallError;
     let app = bundle_path().filter(|_| can_update_in_place()).ok_or(InstallError::NotInApplications)?;
-    let work = std::env::temp_dir().join(format!("KakaoAdHide-update-{}", std::process::id()));
+    let work = std::env::temp_dir().join(format!("TalkNap-update-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| InstallError::Io(e.to_string()))?;
     let dmg = work.join(UPDATE_ASSET);
@@ -312,18 +538,16 @@ pub fn install_update(feed: &Feed) -> Result<(), crate::updater::InstallError> {
 }
 
 /// The part of install_update after the download and feed check: checks the app in the disk image
-/// (extract_verified_app), writes `script` (REPLACE_SCRIPT; tests pass a copy that opens nothing) to the work
+/// (extract_verified_app), writes `script` (REPLACE_SCRIPT, or for a test a copy that opens nothing) to the work
 /// folder and starts it to swap the installed `app` once process `wait_pid` has exited. The script removes `work`.
 fn hand_over(dmg: &Path, work: &Path, version: &str, app: &Path, wait_pid: u32, script: &str) -> Result<(), crate::updater::InstallError> {
     use crate::updater::InstallError;
-    let (new_app, renamed) = extract_verified_app(dmg, work, version).map_err(InstallError::Verify)?;
+    let new_app = extract_verified_app(dmg, work, version).map_err(InstallError::Verify)?;
     let script_path = work.join("replace.sh");
     std::fs::write(&script_path, script).map_err(|e| InstallError::Io(e.to_string()))?;
-    let dst = if renamed { app.with_file_name(TALKNAP_APP_NAME) } else { app.to_path_buf() };
-    let mut cmd = Command::new("/bin/bash");
-    cmd.arg(&script_path).arg(wait_pid.to_string()).arg(&new_app).arg(&dst).arg(work);
-    if renamed { cmd.arg(app); }
-    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+    Command::new("/bin/bash")
+        .arg(&script_path).arg(wait_pid.to_string()).arg(&new_app).arg(app).arg(work)
+        .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
         .spawn().map_err(|e| InstallError::Io(e.to_string()))?;
     Ok(())
 }
@@ -332,7 +556,7 @@ fn hand_over(dmg: &Path, work: &Path, version: &str, app: &Path, wait_pid: u32, 
 pub fn verify_package(feed: &Feed, dmg: &Path) -> Result<(), VerifyError> {
     feed.check_url()?;
     feed::verify_file(feed, dmg, keys::PUBLIC_KEYS)?;
-    let work = std::env::temp_dir().join(format!("KakaoAdHide-verify-{}", std::process::id()));
+    let work = std::env::temp_dir().join(format!("TalkNap-verify-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| VerifyError::BadPackage(e.to_string()))?;
     let r = extract_verified_app(dmg, &work, &feed.version).map(|_| ());
@@ -466,13 +690,13 @@ mod notify {
 
     define_class!(
         #[unsafe(super(NSObject))]
-        #[name = "KakaoAdHideNotificationDelegate"]
+        #[name = "TalkNapNotificationDelegate"]
         struct Delegate;
 
         unsafe impl NSObjectProtocol for Delegate {}
 
         unsafe impl UNUserNotificationCenterDelegate for Delegate {
-            // shown as a banner even while KakaoAdHide counts as the active app (its menu is open)
+            // shown as a banner even while TalkNap counts as the active app (its menu is open)
             #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
             fn will_present(&self, _c: &UNUserNotificationCenter, _n: &UNNotification,
                             done: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>) {
@@ -539,7 +763,7 @@ mod notify {
         content.setTitle(&NSString::from_str(title));
         content.setBody(&NSString::from_str(text));
         if !buttons.is_empty() { content.setCategoryIdentifier(&NSString::from_str(&category_id(buttons))); }
-        let id = format!("kakaoadhide-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst));
+        let id = format!("talknap-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst));
         if let Some(f) = on_click {
             if let Ok(mut g) = CLICKS.lock() { g.get_or_insert_with(HashMap::new).insert(id.clone(), f); }
         }
@@ -563,6 +787,19 @@ pub fn notify(title: &str, text: &str, buttons: &[(&str, &str)], on_click: Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sha1_hashes_from_find_certificate_listing() {
+        let listing = "SHA-256 hash: 9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08\n\
+                       SHA-1 hash: A94A8FE5CCB19BA61C4C0873D391E987982FBBD3\n\
+                       keychain: \"/Users/u/Library/Keychains/login.keychain-db\"\n\
+                       attributes:\n    \"alis\"<blob>=\"TalkNap local ad server\"\n\
+                       SHA-256 hash: 60303AE22B998861BCE3B28F33EEC1BE758A213C86C93C076DBE9F558C11C752\n\
+                       SHA-1 hash: 356A192B7913B04C54574D18C28D46E6395428AB\n\
+                       SHA-1 hash: \n";
+        assert_eq!(sha1_hashes(listing), ["A94A8FE5CCB19BA61C4C0873D391E987982FBBD3", "356A192B7913B04C54574D18C28D46E6395428AB"]);
+        assert!(sha1_hashes("").is_empty());
+    }
 
     // The swap script, against throwaway folders: replaces the app after the given process has exited.
     #[test]
@@ -588,62 +825,75 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // The renaming update: KakaoAdHide.app → TalkNap.app (old given as the fifth argument). `read_only` makes the
-    // Applications folder unwritable so the swap fails. Returns the folder's entries and their "v" files.
-    fn run_rename(tag: &str, read_only: bool) -> Vec<(String, String)> {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("kah-rename-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let apps = dir.join("Applications");
-        let (new, old, dst, work) = (dir.join("new/TalkNap.app"), apps.join(APP_NAME), apps.join(TALKNAP_APP_NAME), dir.join("work"));
-        for d in [&new, &old, &work] { std::fs::create_dir_all(d).unwrap(); }
-        std::fs::write(new.join("v"), "2").unwrap();
-        std::fs::write(old.join("v"), "1").unwrap();
-        let script = work.join("replace.sh");
-        std::fs::write(&script, REPLACE_SCRIPT.replace("/usr/bin/open", "true")).unwrap();
-        if read_only { std::fs::set_permissions(&apps, std::fs::Permissions::from_mode(0o555)).unwrap(); }
-        let mut sleeper = Command::new("/bin/sleep").arg("1").spawn().unwrap();
-        let pid = sleeper.id().to_string();
-        let reaper = std::thread::spawn(move || sleeper.wait());
-        let status = Command::new("/bin/bash").arg(&script).arg(&pid).arg(&new).arg(&dst).arg(&work).arg(&old).status().unwrap();
-        let _ = reaper.join();
-        std::fs::set_permissions(&apps, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(status.success());
-        assert!(!work.exists());
-        let mut found: Vec<_> = std::fs::read_dir(&apps).unwrap().flatten()
-            .map(|e| (e.file_name().to_string_lossy().into_owned(), std::fs::read_to_string(e.path().join("v")).unwrap_or_default()))
-            .collect();
-        found.sort();
-        let _ = std::fs::remove_dir_all(&dir);
-        found
+    #[test]
+    fn login_agent_plist_has_label_and_app() {
+        let plist = login_agent_plist(Path::new("/Applications/TalkNap.app"));
+        assert!(plist.contains("<key>Label</key><string>io.github.pandemoniummm.TalkNap</string>"), "{plist}");
+        assert!(plist.contains("<array><string>/Applications/TalkNap.app/Contents/MacOS/TalkNap</string><string>--run</string></array>"));
+        assert!(plist.contains("<key>RunAtLoad</key><true/>"));
+        assert!(plist.contains("<key>AbandonProcessGroup</key><true/>"));
+        assert!(!plist.contains("/usr/bin/open"));
     }
 
     #[test]
-    fn replace_script_renames_the_app() {
-        assert_eq!(run_rename("ok", false), [(TALKNAP_APP_NAME.to_string(), "2".to_string())]);
+    fn login_executable_is_the_bundle_executable() {
+        let plist = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/packaging/macos/Info.plist")).unwrap();
+        assert!(plist.contains(&format!("<key>CFBundleExecutable</key>\n\t<string>{EXECUTABLE}</string>")), "{plist}");
     }
 
     #[test]
-    fn replace_script_keeps_the_old_app_when_the_swap_fails() {
-        assert_eq!(run_rename("fail", true), [(APP_NAME.to_string(), "1".to_string())]);
+    fn login_agent_points_elsewhere() {
+        let new = Path::new("/Applications/TalkNap.app");
+        assert!(!plist_points_to(&login_agent_plist(Path::new("/Applications/KakaoAdHide.app")), new));
+        assert!(plist_points_to(&login_agent_plist(new), new));
+        let odd = Path::new("/Users/a/Applications/R&D <x>/TalkNap.app");
+        assert!(login_agent_plist(odd).contains("R&amp;D &lt;x&gt;"));
+        assert!(plist_points_to(&login_agent_plist(odd), odd));
+        // a 2.7.0 test build's agent (open -a) is rewritten
+        let open_agent = login_agent_plist(new).replace(
+            "<string>/Applications/TalkNap.app/Contents/MacOS/TalkNap</string>",
+            "<string>/usr/bin/open</string><string>-g</string><string>-a</string><string>/Applications/TalkNap.app</string><string>--args</string>");
+        assert!(!plist_points_to(&open_agent, new));
     }
 
     #[test]
-    fn accepted_pairs() {
-        assert_eq!(requirement(BUNDLE_ID, SIGNING_CERT_SHA1), signing_requirement());   // 옛 짝은 지금 문자열 그대로
-        assert_eq!(signing_requirement(), "identifier \"io.github.pandemoniummm.KakaoAdHide\" and certificate leaf = H\"DB044D3EF322C3D1E1961BB3D91063A3E07CF06A\"");
-        let new = requirement(TALKNAP_BUNDLE_ID, SIGNING_CERT_SHA1_TALKNAP);
-        assert!(new.contains("io.github.pandemoniummm.TalkNap\"") && new.contains(SIGNING_CERT_SHA1_TALKNAP));
-        assert_eq!(pair_for(TALKNAP_APP_NAME), (TALKNAP_BUNDLE_ID, SIGNING_CERT_SHA1_TALKNAP));
-        assert_eq!(pair_for(APP_NAME), (BUNDLE_ID, SIGNING_CERT_SHA1));
+    fn old_app_only_with_old_bundle_id() {
+        assert!(is_old_app(OLD_BUNDLE_ID));
+        assert!(!is_old_app(BUNDLE_ID));
+        assert!(!is_old_app(""));
+        assert!(!is_old_app("com.kakao.KakaoTalkMac"));
+    }
+
+    #[test]
+    fn accepted_pair_is_talknap() {
+        assert_eq!(requirement(BUNDLE_ID, SIGNING_CERT_SHA1),
+            "identifier \"io.github.pandemoniummm.TalkNap\" and certificate leaf = H\"82E7C479987E47FEAA2A457F64A8F09205F0CA77\"");
+        assert_ne!(old_data_dir(), data_dir());
+        assert!(data_dir().ends_with("TalkNap") && old_data_dir().ends_with("KakaoAdHide"));
+        assert_ne!(launch_agent_for(OLD_BUNDLE_ID), launch_agent());
+    }
+
+    #[test]
+    fn pkill_pattern_is_literal() {
+        assert_eq!(regex_escape("/Applications/KakaoAdHide.app"), r"/Applications/KakaoAdHide\.app");
+        assert_eq!(regex_escape("/Users/a (b)/[x]+$"), r"/Users/a \(b\)/\[x\]\+\$");
+    }
+
+    #[test]
+    fn old_traces_by_name() {
+        assert!(is_old_crash_report("KakaoAdHide-2026-11-25-101010.ips"));
+        assert!(is_old_crash_report("KakaoAdHide_2026-11-25-101010_Mac.crash"));
+        assert!(!is_old_crash_report("TalkNap-2026-11-25-101010.ips"));
+        assert!(!is_old_crash_report("KakaoAdHideX-1.ips"));
+        assert!(!is_old_crash_report("KakaoTalk-2026-11-25-101010.ips"));
+        assert!(is_old_crash_reporter_plist("KakaoAdHide_0A1B2C.plist"));
+        assert!(!is_old_crash_reporter_plist("KakaoAdHide_0A1B2C.txt"));
+        assert!(!is_old_crash_reporter_plist("TalkNap_0A1B2C.plist"));
     }
 
     // Run by hand against disk images made by packaging/macos/build.sh --dmg:
     //   KAH_SIGNED_DMG=<signed dmg> KAH_UNSIGNED_DMG=<ad-hoc dmg> KAH_DMG_VERSION=<version> \
     //     cargo test -- --ignored disk_images
-    // The renaming update end to end (hand_over + REPLACE_SCRIPT, opening nothing), against a disk image made by
-    // packaging/macos/make-rename-test-dmg.sh:
-    //   KAH_RENAME_DMG=<TalkNap dmg> KAH_DMG_VERSION=<version given to it> cargo test -- --ignored rename_disk_image
     #[test]
     #[ignore]
     fn disk_images() {
@@ -663,37 +913,5 @@ mod tests {
         let r = extract_verified_app(Path::new(&std::env::var("KAH_SIGNED_DMG").unwrap()), &work, "0.0.1");
         let _ = std::fs::remove_dir_all(&work);
         assert!(matches!(r, Err(VerifyError::BadPackage(ref w)) if w.contains("버전")));
-    }
-
-    // A throwaway Applications folder holding a fake KakaoAdHide.app: hand_over checks the TalkNap disk image and
-    // its script must leave only TalkNap.app (the new bundle identifier) once the "running app" (a sleep) exits.
-    #[test]
-    #[ignore]
-    fn rename_disk_image() {
-        let version = std::env::var("KAH_DMG_VERSION").unwrap();
-        let dmg = std::env::var("KAH_RENAME_DMG").unwrap();
-        let dir = std::env::temp_dir().join(format!("kah-rename-dmg-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let (apps, work) = (dir.join("Applications"), dir.join("work"));
-        let old = apps.join(APP_NAME);
-        for d in [&old, &work] { std::fs::create_dir_all(d).unwrap(); }
-        std::fs::write(old.join("marker"), "old").unwrap();
-        let mut sleeper = Command::new("/bin/sleep").arg("1").spawn().unwrap();
-        let pid = sleeper.id();
-        let reaper = std::thread::spawn(move || sleeper.wait());   // a zombie would still answer kill -0
-        hand_over(Path::new(&dmg), &work, &version, &old, pid, &REPLACE_SCRIPT.replace("/usr/bin/open", "true"))
-            .unwrap_or_else(|e| panic!("hand_over: {e:?}"));
-        let _ = reaper.join();
-        let start = std::time::Instant::now();
-        while work.exists() {
-            assert!(start.elapsed() < std::time::Duration::from_secs(60), "the script did not finish");
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
-        let found: Vec<_> = std::fs::read_dir(&apps).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-        assert_eq!(found, [TALKNAP_APP_NAME], "{found:?}");
-        let id = Command::new("/usr/bin/plutil").args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
-            .arg(apps.join(TALKNAP_APP_NAME).join("Contents/Info.plist")).output().unwrap();
-        assert_eq!(String::from_utf8_lossy(&id.stdout).trim(), TALKNAP_BUNDLE_ID);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

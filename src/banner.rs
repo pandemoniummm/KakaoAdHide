@@ -110,7 +110,7 @@ st();window.addEventListener('resize',function(){{clearTimeout(rt);rt=setTimeout
         Some(token) => format!(
             "<style>#kah{{position:fixed;top:50%;left:calc(var(--sb,{SIDEBAR_WIDTH}px)/2);width:var(--ic,19px);\
 height:var(--ic,19px);padding:calc(var(--ic,19px)*{HOVER_PAD});border-radius:50%;transform:translate(-50%,-50%);color:{ACTIVE_LIGHT};cursor:default}}#kah:hover{{background:rgba(0,0,0,{HOVER_LIGHT})}}{dark_button}.off #kah{{color:{INACTIVE_LIGHT}}}{dark_off}</style><svg id=\"kah\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"{STROKE}\" \
-stroke-linecap=\"round\"><title>낮잠</title>{TOP_RECT}\
+stroke-linecap=\"round\"><title>TalkNap</title>{TOP_RECT}\
 <rect x=\"3\" y=\"13.5\" width=\"18\" height=\"6.5\" rx=\"3.25\"/></svg>\
 <script>document.getElementById('kah').addEventListener('click',function(){{\
 fetch('{MENU_URL}?t={token}',{{mode:'no-cors',cache:'no-store'}}).catch(function(){{}})}});\
@@ -151,9 +151,9 @@ function(a){try{if(a.data.event.name==='ReadyToListen'){window.chrome.webview.po
 const LOCAL: &str = "https://serv.ds.kakao.com/ev/";
 
 /// The blank ad's logo asks this to open the app's menu (see server::MENU_PATH).
-pub const MENU_URL: &str = "https://serv.ds.kakao.com/kakaoadhide/menu";
+pub const MENU_URL: &str = "https://serv.ds.kakao.com/talknap/menu";
 /// The blank ad listens here for KakaoTalk's window state, to dim the button with KakaoTalk's icons.
-pub const STATE_URL: &str = "https://serv.ds.kakao.com/kakaoadhide/state";
+pub const STATE_URL: &str = "https://serv.ds.kakao.com/talknap/state";
 /// macOS: the state stream also carries the ad slot's width (`&w=`), see `html`.
 const SEND_WIDTH: bool = cfg!(target_os = "macos");
 
@@ -254,6 +254,7 @@ mod tests {
         assert_eq!(html.matches("fetch(").count(), 1);
         assert_eq!(html.matches("EventSource(").count(), 1);
         assert!(html.contains(&format!("{MENU_URL}?t=0123abcd")) && html.contains(&format!("{STATE_URL}?t=0123abcd")));
+        assert!(MENU_URL.ends_with("/talknap/menu") && STATE_URL.ends_with("/talknap/state"));
         assert!(MENU_URL.starts_with("https://serv.ds.kakao.com/") && MENU_URL.ends_with(crate::server::MENU_PATH));
         assert!(STATE_URL.starts_with("https://serv.ds.kakao.com/") && STATE_URL.ends_with(crate::server::STATE_PATH));
         for banned in ["http:", "src=", "XMLHttpRequest", "WebSocket", "sendBeacon", "import"] {

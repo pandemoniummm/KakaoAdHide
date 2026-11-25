@@ -11,7 +11,7 @@
 //   KakaoAdHide --version
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-use kakaoadhide::*;
+use talknap::*;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -35,8 +35,8 @@ fn main() {
     }
     #[cfg(windows)]
     {
-        if has("--hosts-add") { std::process::exit(platform::hosts_elevated(true)); }
-        if has("--hosts-remove") { std::process::exit(platform::hosts_elevated(false)); }
+        if has("--hosts-add") { std::process::exit(platform::hosts_elevated(true, has(platform::CLEAN_OLD_ARG))); }
+        if has("--hosts-remove") { std::process::exit(platform::hosts_elevated(false, false)); }
         if has("--uninstall") {
             let r = platform::uninstall(quiet);
             std::process::exit(if r.is_ok() { 0 } else { 1 });
@@ -61,6 +61,7 @@ fn main() {
     {
         let _ = quiet;
         if platform::offer_move_to_applications() { return; }
+        platform::migrate_old();
         let Some(_lock) = platform::single_instance() else { return };
         ui::run(has("--run"));
     }
@@ -69,7 +70,7 @@ fn main() {
 /// --update: 0 = update started, 2 = up to date, 3 = not verified, 1 = error.
 fn update_now(quiet: bool) -> i32 {
     match updater::check() {
-        Err(e) => { if !quiet { ui::error(&notices::check_failed(&e)); } 1 }
+        Err(e) => { if !quiet { ui::error(&e.problem()); } 1 }
         Ok(updater::Check::UpToDate) => { if !quiet { ui::show(&notices::up_to_date()); } 2 }
         Ok(updater::Check::Available(f)) => match platform::install_update(&f) {
             Ok(()) => 0,

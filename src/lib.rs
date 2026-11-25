@@ -13,4 +13,4 @@ pub mod setup;
 pub mod ui;
 pub mod updater;
 
-pub const VERSION: &str = env!("KAKAOADHIDE_VERSION");
+pub const VERSION: &str = env!("TALKNAP_VERSION");
