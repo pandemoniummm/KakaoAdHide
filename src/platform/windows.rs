@@ -347,6 +347,15 @@ pub fn install(quiet: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// What Windows records under HKCU about the Startup shortcut `<app>.lnk`: Task Manager's on/off choice and the
+/// "new startup app" notification it showed once.
+fn startup_records(app: &str) -> [(&'static str, String); 2] {
+    [
+        (r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder", format!("{app}.lnk")),
+        (r"Software\Microsoft\Windows\CurrentVersion\RunNotification", format!("StartupTNoti{app}.lnk")),
+    ]
+}
+
 pub fn uninstall(quiet: bool) -> Result<(), String> {
     stop_running();
     // An old install left behind goes too. First, so that its certificate (moved into certs/) is untrusted with
@@ -358,6 +367,11 @@ pub fn uninstall(quiet: bool) -> Result<(), String> {
     let _ = std::fs::remove_file(startup_lnk());
     restore_kakao_autostart();
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    // Windows keeps Task Manager's on/off for the shortcut apart from it: left behind, a later install would start
+    // turned off.
+    for (key, value) in startup_records(APP) {
+        if let Ok(k) = hkcu.open_subkey_with_flags(key, winreg::enums::KEY_SET_VALUE) { let _ = k.delete_value(value); }
+    }
     let _ = hkcu.delete_subkey_all(UNINSTALL_KEY);
     let _ = hkcu.delete_subkey_all(APP_KEY);
     let _ = std::fs::remove_dir_all(update_temp_dir());
@@ -779,6 +793,15 @@ mod tests {
         assert_ne!(super::OLD_APP_KEY, super::APP_KEY);
         assert_ne!(super::OLD_UNINSTALL_KEY, super::UNINSTALL_KEY);
         assert_ne!(super::app_id_key(super::OLD_NOTIFY_APP_ID), super::app_id_key(super::NOTIFY_APP_ID));
+    }
+
+    #[test]
+    fn uninstall_forgets_the_startup_choice_of_the_new_shortcut_only() {
+        let [(approved, choice), (noti, shown)] = super::startup_records(super::APP);
+        assert!(approved.ends_with(r"Explorer\StartupApproved\StartupFolder") && noti.ends_with("RunNotification"));
+        assert_eq!((choice.as_str(), shown.as_str()), ("TalkNap.lnk", "StartupTNotiTalkNap.lnk"));
+        // the value names match the Startup shortcut uninstall removes
+        assert_eq!(super::startup_lnk().file_name().unwrap().to_str(), Some(choice.as_str()));
     }
 
     /// Touches the real certificate store: run by hand (`cargo test -- --ignored old_certificates`) only on a PC
