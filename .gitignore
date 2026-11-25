@@ -9,3 +9,6 @@ target/
 *.pfx
 *.p12
 *.password
+
+# macOS Finder
+.DS_Store
