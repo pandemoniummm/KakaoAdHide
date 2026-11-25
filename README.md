@@ -7,8 +7,8 @@
 TalkNap은 카카오톡 PC(Windows, macOS)의 광고 배너를 비우는 작은 프로그램입니다. 예전 이름은 KakaoAdHide입니다.
 카카오톡이 광고를 받아 오는 요청을 이 컴퓨터 안에서 대신 받아, 광고 대신 **카카오톡 배경색만 칠한 빈 칸**을 돌려줍니다.
 
-[![최신 버전](https://img.shields.io/github/v/release/pandemoniummm/TalkNap?style=flat-square&label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84&color=1f8fd6)](../../releases/latest)
-[![빌드](https://img.shields.io/github/actions/workflow/status/pandemoniummm/TalkNap/build.yml?branch=main&style=flat-square&label=%EB%B9%8C%EB%93%9C&logo=githubactions&logoColor=white)](../../actions/workflows/build.yml)
+[![release](https://img.shields.io/github/v/release/pandemoniummm/TalkNap?style=flat-square&label=release&color=1f8fd6)](../../releases/latest)
+[![build](https://img.shields.io/github/actions/workflow/status/pandemoniummm/TalkNap/build.yml?branch=main&style=flat-square&label=build&logo=githubactions&logoColor=white)](../../actions/workflows/build.yml)
 ![Windows](https://img.shields.io/badge/Windows-0078D4?style=flat-square&logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0zIDNoOC41djguNUgzek0xMi41IDNIMjF2OC41aC04LjV6TTMgMTIuNWg4LjVWMjFIM3pNMTIuNSAxMi41SDIxVjIxaC04LjV6Ii8+PC9zdmc+)
 ![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-B7410E?style=flat-square&logo=rust&logoColor=white)
@@ -41,7 +41,7 @@ Windows (64비트) · macOS 11 이상 (Apple silicon, Intel)
 | **카카오톡이 직접 그리는 빈 칸** | 창을 끌거나 크기를 바꾸거나 다른 모니터로 옮겨도 어긋나지 않습니다. |
 | **카카오톡을 건드리지 않음** | 실행 파일 수정이나 코드 주입이 없습니다. |
 | **광고 서버에 접속하지 않음** | 광고 노출·클릭 기록도 보내지 않습니다. |
-| **팝업 광고도 막음** | Windows에서 트레이 근처에 따로 뜨는 광고 팝업도 뜨지 않게 합니다. |
+| **팝업 광고도 막음** (Windows) | 트레이 근처에 따로 뜨는 광고 팝업도 뜨지 않게 합니다. |
 | **빈 칸의 메뉴 버튼** | 사이드바 아래 버튼으로 메뉴를 엽니다. 카카오톡 아이콘처럼 창이 비활성이면 흐려집니다. |
 | **풀리면 알려 줌** | 다른 프로그램이 설정을 지우면 알림을 띄우고, [다시 설정]으로 바로 고칩니다. |
 | **가벼움** | 카카오톡이 켤 때와 하루 한 번 보내는 요청에만 답합니다. |
@@ -58,7 +58,7 @@ Windows (64비트) · macOS 11 이상 (Apple silicon, Intel)
 2. 설정 안내가 뜨면 **설정하기** → 인증서 설치 확인 창에서 **예** → 사용자 계정 컨트롤 창에서 **예**.
 3. 설치가 끝나면 TalkNap이 카카오톡을 켭니다(이미 켜져 있으면 그대로).
 
-예전 KakaoAdHide(낮잠)를 쓰고 있었다면, 업데이트나 설치 때 TalkNap이 옛 프로그램 파일, 바로가기, 설정, 인증서, hosts 줄을 새 이름으로 옮기고 옛것을 지웁니다.
+예전 KakaoAdHide(낮잠)를 쓰고 있었다면, 업데이트나 설치 때 TalkNap이 옛 프로그램 파일, 바로가기, 설정, 인증서, hosts 줄을 새 이름으로 옮기고 옛것을 지웁니다. **이름 바꾸기** 창에서 **계속**을 누르면 확인 창(인증서, 사용자 계정 컨트롤)이 두세 번 뜹니다. **나중에**를 눌러도 광고 칸은 그대로 비어 있고, 다음에 켤 때 다시 묻습니다.
 
 > **처음 실행할 때**: **"Windows의 PC 보호"** 창이 뜨면 **추가 정보 → 실행**을 누르세요. 코드 서명을 하지 않은 프로그램이라 뜨는 경고입니다.
 
@@ -109,6 +109,9 @@ Windows (64비트) · macOS 11 이상 (Apple silicon, Intel)
 1. [다운로드 페이지](https://pandemoniummm.github.io/TalkNap/)나 [Releases](../../releases/latest)에서 `TalkNap.dmg`를 받아 열고, `TalkNap`을 `Applications`로 끌어다 놓습니다.
 2. 응용 프로그램 폴더에서 TalkNap을 실행합니다.
 3. 설정 안내에서 **설정하기** → 인증서 신뢰 변경에 **Mac 로그인 암호** → hosts 변경에 **관리자 암호**.
+4. 알림을 보내도 되는지 물으면 **허용**. 새 버전이나 설정이 풀린 것을 알릴 때 씁니다(허용하지 않으면 창으로 알립니다).
+
+"**'TalkNap' 앱은 백그라운드에서 실행될 수 있습니다**"라는 알림은 로그인할 때 TalkNap이 켜지도록 등록됐다는 macOS 안내입니다. 메뉴의 **로그인할 때 실행**으로 끌 수 있습니다.
 
 > **처음 실행할 때**: **"Apple은 'TalkNap'에 악성 코드가 없음을 확인할 수 없습니다"** 창이 뜨면 **완료**를 누르고, **시스템 설정 > 개인정보 보호 및 보안** 아래쪽의 **그래도 열기**를 누른 뒤 다시 실행합니다. Apple 유료 개발자 서명(공증)을 하지 않은 앱이라 처음 한 번 뜨는 경고입니다.
 
@@ -118,6 +121,9 @@ Windows (64비트) · macOS 11 이상 (Apple silicon, Intel)
 메뉴: 카카오톡 다시 시작, 업데이트 확인, 업데이트 자동 확인, 로그인할 때 실행, TalkNap 제거, 종료
 
 예전 KakaoAdHide(낮잠)를 쓰고 있었다면, 업데이트 때 TalkNap이 옛 앱, 로그인 항목, 설정, 인증서, hosts 줄을 새 이름으로 옮기고 옛것을 지웁니다.
+- **이름 바꾸기** 창에서 **계속**을 누르면 암호 창이 두세 번 뜹니다(새 인증서 신뢰, hosts, 옛 인증서 지우기). **나중에**를 눌러도 광고 칸은 그대로 비어 있고, 다음에 켤 때 다시 묻습니다.
+- 앱의 번들 ID가 바뀌어 알림 허용을 다시 묻습니다.
+- 시스템 설정의 "로그인 시 열기"에 KakaoAdHide를 직접 넣었다면 그 항목은 지우지 않습니다. 목록에서 직접 빼 주세요.
 
 <details>
 <summary>설치하면 바뀌는 것, 제거</summary>
@@ -125,7 +131,7 @@ Windows (64비트) · macOS 11 이상 (Apple silicon, Intel)
 | 항목 | 내용 |
 |---|---|
 | `/Applications/TalkNap.app` | 프로그램 (쓸 수 없으면 `~/Applications`) |
-| `~/Library/LaunchAgents/io.github.pandemoniummm.TalkNap.plist` | 로그인할 때 실행 (메뉴에서 끌 수 있음) |
+| `~/Library/LaunchAgents/io.github.pandemoniummm.TalkNap.plist` | 로그인할 때 실행 (메뉴에서 끌 수 있음). 시스템 설정 > 일반 > 로그인 항목의 "백그라운드에서 허용"에 TalkNap으로 보입니다 |
 | 로그인 키체인 | `TalkNap local ad server` 인증서 (SSL에만 신뢰, 광고 주소 두 개 전용) |
 | `/etc/hosts` | `# TalkNap begin` ~ `# TalkNap end` 사이의 두 줄 |
 | `~/Library/Application Support/TalkNap/` | 설정과 인증서 |
